@@ -1,0 +1,71 @@
+# Multi-stage production Dockerfile for FastAPI Backend
+# Base OS: Ubuntu 24.04 LTS (Noble Numbat)
+FROM ubuntu:24.04 AS base
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PATH="/opt/venv/bin:$PATH"
+
+# Install system dependencies including libgl for OpenCV and build tools
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.12 \
+    python3.12-venv \
+    python3-pip \
+    libgl1 \
+    libglib2.0-0 \
+    curl \
+    ca-certificates \
+    libpq5 \
+    netcat-openbsd \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Builder stage for dependencies
+FROM base AS builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    python3.12-dev \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN python3.12 -m venv /opt/venv
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+
+# Final production stage
+FROM base AS runtime
+
+COPY --from=builder /opt/venv /opt/venv
+
+# Ubuntu 24.04 includes a default 'ubuntu' user with UID/GID 1000. Remove it to create appuser with 1000:1000.
+RUN touch /var/mail/ubuntu 2>/dev/null || true && \
+    userdel -r ubuntu 2>/dev/null || true && \
+    groupdel ubuntu 2>/dev/null || true && \
+    groupadd -g 1000 appuser && \
+    useradd -u 1000 -g appuser -s /bin/bash -m appuser
+
+WORKDIR /app
+
+# Copy application files
+COPY . .
+
+# Create necessary directories for storage and models with correct permissions
+RUN mkdir -p storage/events storage/temp models_zoo && \
+    chown -R appuser:appuser /app
+
+USER appuser
+
+EXPOSE 8000
+
+# Healthcheck
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD curl -f http://localhost:8000/api/v1/health || exit 1
+
+ENTRYPOINT ["docker/entrypoint.sh"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2", "--proxy-headers"]
+

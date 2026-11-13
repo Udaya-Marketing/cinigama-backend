@@ -1,0 +1,29 @@
+# Environment and secrets
+.env
+.env.*
+.env*.local
+!.env.example
+
+# Python virtual environment & cache
+.venv/
+env/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Testing & Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Operating System
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Storage & Runtime data
+storage/
+temp/
+*.log

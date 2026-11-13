@@ -1,0 +1,64 @@
+import datetime
+import uuid
+from typing import TYPE_CHECKING, Optional
+from sqlalchemy import DateTime, ForeignKey, Index, String, func
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from app.models.base import Base, GUID
+
+if TYPE_CHECKING:
+    from app.models.event import Event
+    from app.models.user import User
+
+
+class SearchSession(Base):
+    __tablename__ = "search_sessions"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        GUID,
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    event_id: Mapped[uuid.UUID] = mapped_column(
+        GUID,
+        ForeignKey("events.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    attendee_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        GUID,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    consent_timestamp: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+    )
+    consent_purpose: Mapped[str] = mapped_column(
+        String(255),
+        default="facial_recognition_search",
+        nullable=False,
+    )
+    status: Mapped[str] = mapped_column(
+        String(50),
+        default="active",
+        nullable=False,
+        index=True,
+    )  # 'active', 'expired', 'revoked'
+    expires_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+    )
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    # Relationships
+    event: Mapped["Event"] = relationship("Event", back_populates="search_sessions")
+    attendee: Mapped[Optional["User"]] = relationship("User")
+
+
+Index("idx_search_sessions_event_status", SearchSession.event_id, SearchSession.status)
+
