@@ -68,6 +68,15 @@ app.add_middleware(
 )
 
 
+@app.middleware("http")
+async def vercel_path_rewrite_middleware(request: Request, call_next):
+    # When deployed on Vercel with rewrites, restore the real matched path
+    matched_path = request.headers.get("x-matched-path")
+    if matched_path and request.scope.get("path") in ("/api/index.py", "/api/index", "/api"):
+        request.scope["path"] = matched_path
+    return await call_next(request)
+
+
 # Global Exception Handlers
 @app.exception_handler(AppError)
 async def app_error_handler(request: Request, exc: AppError):
@@ -126,6 +135,15 @@ async def health_check():
         "version": settings.VERSION,
         "models_ready": models_ready,
         "disk_storage": disk,
+    }
+
+
+@app.get("/api/index.py")
+async def vercel_index_debug(request: Request):
+    return {
+        "status": "ok",
+        "path": request.scope.get("path"),
+        "headers": {k: v for k, v in request.headers.items() if not k.lower().startswith("authorization")},
     }
 
 
