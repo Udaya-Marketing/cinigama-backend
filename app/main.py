@@ -16,8 +16,11 @@ from app.services.storage_service import storage_service
 async def lifespan(app: FastAPI):
     # Startup: ensure storage and models are available
     app_logger.info("Initializing application startup checks...")
-    storage_service.events_dir.mkdir(parents=True, exist_ok=True)
-    storage_service.temp_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        storage_service.events_dir.mkdir(parents=True, exist_ok=True)
+        storage_service.temp_dir.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass
 
     if settings.yunet_path.exists() and settings.sface_path.exists():
         app_logger.info("Pre-warming Face Recognition Engine models...")

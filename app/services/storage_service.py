@@ -18,8 +18,11 @@ class StorageService:
         self._base_dir = Path(base_dir or settings.STORAGE_BASE_DIR).resolve()
         self.events_dir = (self._base_dir / "events").resolve()
         self.temp_dir = (self._base_dir / "temp").resolve()
-        self.events_dir.mkdir(parents=True, exist_ok=True)
-        self.temp_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            self.events_dir.mkdir(parents=True, exist_ok=True)
+            self.temp_dir.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            pass
         self._s3_client = None
 
     @property
