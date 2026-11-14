@@ -1,3 +1,5 @@
+import os
+import re
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
@@ -58,14 +60,41 @@ app = FastAPI(
     openapi_url="/openapi.json",
 )
 
+# CORS regex matcher for allowed origins
+_cors_regex = re.compile(settings.CORS_ORIGIN_REGEX)
+
+
+def _get_cors_headers(request: Request) -> dict:
+    """Ensure CORS headers are attached even on error responses."""
+    origin = request.headers.get("origin")
+    if origin and (origin in settings.cors_origins_list or _cors_regex.match(origin)):
+        return {
+            "Access-Control-Allow-Origin": origin,
+            "Access-Control-Allow-Credentials": "true",
+            "Vary": "Origin",
+        }
+    return {}
+
+
 # CORS configuration
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
+    allow_origin_regex=settings.CORS_ORIGIN_REGEX,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def vercel_path_rewrite_middleware(request: Request, call_next):
+    """In Vercel serverless environments, rewrites may pass the function path '/api/index.py'
+    instead of the client request URL. Recover the actual requested path from Vercel headers."""
+    matched = request.headers.get("x-matched-path") or request.headers.get("x-vercel-matched-path")
+    if matched and request.scope.get("path") in ("/api/index.py", "/api/index", "/api"):
+        request.scope["path"] = matched
+    return await call_next(request)
 
 
 # Global Exception Handlers
@@ -81,6 +110,7 @@ async def app_error_handler(request: Request, exc: AppError):
                 "details": exc.extra,
             },
         },
+        headers=_get_cors_headers(request),
     )
 
 
@@ -96,12 +126,14 @@ async def validation_error_handler(request: Request, exc: RequestValidationError
                 "details": exc.errors(),
             },
         },
+        headers=_get_cors_headers(request),
     )
 
 
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception):
     app_logger.exception(f"Unhandled server exception: {exc}")
+    err_detail = str(exc) if (settings.DEBUG or os.environ.get("VERCEL")) else None
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={
@@ -109,9 +141,10 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
             "error": {
                 "code": "INTERNAL_SERVER_ERROR",
                 "message": "An internal server error occurred",
-                "details": None,
+                "details": err_detail,
             },
         },
+        headers=_get_cors_headers(request),
     )
 
 

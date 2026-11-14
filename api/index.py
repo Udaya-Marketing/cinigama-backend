@@ -9,52 +9,34 @@ if root_dir not in sys.path:
     sys.path.insert(0, root_dir)
 
 try:
-    from app.main import app as fastapi_app
-    import_error = None
+    from app.main import app
 except Exception:
-    fastapi_app = None
     import_error = traceback.format_exc()
+    from fastapi import FastAPI
+    from fastapi.middleware.cors import CORSMiddleware
+    from fastapi.responses import JSONResponse
 
+    app = FastAPI(title="Serverless Startup Fallback")
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
-async def app(scope, receive, send):
-    """Vercel ASGI entrypoint with fallback error handling and path resolution."""
-    if fastapi_app is None:
-        import json
-        if scope.get("type") == "http":
-            body = json.dumps({
-                "status": "error",
-                "message": "Application failed to import on Vercel",
+    @app.api_route("/{full_path:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH"])
+    async def fallback_handler(full_path: str):
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": "STARTUP_IMPORT_ERROR",
+                "message": "The application encountered an error during import initialization on Vercel.",
                 "traceback": import_error.splitlines(),
-            }).encode("utf-8")
-            await send({
-                "type": "http.response.start",
-                "status": 500,
-                "headers": [
-                    (b"content-type", b"application/json"),
-                    (b"access-control-allow-origin", b"*"),
-                    (b"access-control-allow-methods", b"*"),
-                    (b"access-control-allow-headers", b"*"),
-                ],
-            })
-            await send({
-                "type": "http.response.body",
-                "body": body,
-            })
-        return
-
-    # Handle path resolution when Vercel rewrites to /api/index.py
-    if scope.get("type") == "http":
-        headers_dict = dict(scope.get("headers", []))
-        matched = (
-            headers_dict.get(b"x-matched-path")
-            or headers_dict.get(b"x-vercel-matched-path")
+            },
+            headers={
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Credentials": "true",
+            },
         )
-        if matched:
-            scope["path"] = matched.decode("utf-8")
-        elif scope.get("path") in ("/api/index.py", "/api/index", "/api"):
-            # If no matched header was provided, check raw_path or default to /
-            raw = scope.get("raw_path")
-            if raw and raw not in (b"/api/index.py", b"/api/index"):
-                scope["path"] = raw.decode("utf-8")
-
-    await fastapi_app(scope, receive, send)

@@ -3,7 +3,14 @@ import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
-import cv2
+try:
+    import cv2
+    _cv2_available = True
+    _cv2_error = None
+except Exception as _e:
+    cv2 = None
+    _cv2_available = False
+    _cv2_error = str(_e)
 import numpy as np
 from PIL import Image, ImageOps
 
@@ -36,6 +43,8 @@ class FaceRecognitionEngine:
         nms_threshold: Optional[float] = None,
         top_k: Optional[int] = None,
     ):
+        if not _cv2_available:
+            raise RuntimeError(f"OpenCV (cv2) is not available: {_cv2_error}")
         self.yunet_path = Path(yunet_path or settings.yunet_path)
         self.sface_path = Path(sface_path or settings.sface_path)
         self.score_threshold = score_threshold or settings.YUNET_SCORE_THRESHOLD
