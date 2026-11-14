@@ -118,9 +118,8 @@ async def not_found_handler(request: Request, exc):
         content={
             "detail": "Not Found",
             "path": request.scope.get("path"),
-            "raw_path": request.scope.get("raw_path", b"").decode("latin1", errors="replace"),
-            "matched_path": request.headers.get("x-matched-path"),
-            "vercel_matched": request.headers.get("x-vercel-matched-path"),
+            "query_string": request.scope.get("query_string", b"").decode("latin1"),
+            "headers": {k: v for k, v in request.headers.items() if "auth" not in k.lower()},
         },
         headers=_get_cors_headers(request),
     )
