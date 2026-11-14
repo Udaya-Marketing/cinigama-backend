@@ -111,6 +111,21 @@ app.add_middleware(VercelPathRewriteMiddleware)
 
 
 # Global Exception Handlers
+@app.exception_handler(404)
+async def not_found_handler(request: Request, exc):
+    return JSONResponse(
+        status_code=404,
+        content={
+            "detail": "Not Found",
+            "path": request.scope.get("path"),
+            "raw_path": request.scope.get("raw_path", b"").decode("latin1", errors="replace"),
+            "matched_path": request.headers.get("x-matched-path"),
+            "vercel_matched": request.headers.get("x-vercel-matched-path"),
+        },
+        headers=_get_cors_headers(request),
+    )
+
+
 @app.exception_handler(AppError)
 async def app_error_handler(request: Request, exc: AppError):
     return JSONResponse(
