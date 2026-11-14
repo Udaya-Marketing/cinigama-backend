@@ -87,14 +87,27 @@ app.add_middleware(
 )
 
 
-@app.middleware("http")
-async def vercel_path_rewrite_middleware(request: Request, call_next):
-    """In Vercel serverless environments, rewrites may pass the function path '/api/index.py'
-    instead of the client request URL. Recover the actual requested path from Vercel headers."""
-    matched = request.headers.get("x-matched-path") or request.headers.get("x-vercel-matched-path")
-    if matched and request.scope.get("path") in ("/api/index.py", "/api/index", "/api"):
-        request.scope["path"] = matched
-    return await call_next(request)
+class VercelPathRewriteMiddleware:
+    """Pure ASGI middleware to recover original request path when Vercel rewrites to /api/index.py."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope.get("type") == "http":
+            headers = dict(scope.get("headers", []))
+            matched = (
+                headers.get(b"x-matched-path")
+                or headers.get(b"x-vercel-matched-path")
+            )
+            if matched:
+                scope["path"] = matched.decode("utf-8").split("?")[0]
+            elif scope.get("raw_path") and scope["raw_path"] not in (b"/api/index.py", b"/api/index"):
+                scope["path"] = scope["raw_path"].decode("utf-8").split("?")[0]
+        await self.app(scope, receive, send)
+
+
+app.add_middleware(VercelPathRewriteMiddleware)
 
 
 # Global Exception Handlers
@@ -148,6 +161,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
     )
 
 
+@app.get("/", tags=["Health"])
 @app.get("/health", tags=["Health"])
 @app.get("/api/v1/health", tags=["Health"])
 async def health_check():
