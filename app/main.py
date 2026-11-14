@@ -22,14 +22,14 @@ async def lifespan(app: FastAPI):
     except OSError:
         pass
 
-    if settings.yunet_path.exists() and settings.sface_path.exists():
+    if not os.environ.get("VERCEL") and settings.yunet_path.exists() and settings.sface_path.exists():
         app_logger.info("Pre-warming Face Recognition Engine models...")
         try:
             FaceRecognitionEngine.get_instance()
             app_logger.info("Face Recognition models ready.")
         except Exception as e:
             app_logger.warning(f"Could not initialize face engine at startup: {e}")
-    else:
+    elif not os.environ.get("VERCEL"):
         app_logger.warning(
             f"Face models missing in {settings.MODELS_DIR}. Run scripts/download_models.py."
         )
@@ -131,4 +131,5 @@ async def health_check():
 
 # Include API v1 router
 app.include_router(api_router, prefix=settings.API_V1_STR)
+app.include_router(api_router, prefix="/v1")
 
