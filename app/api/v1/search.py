@@ -36,7 +36,7 @@ router = APIRouter(prefix="/events/{event_id}/search", tags=["Face Search"])
     summary="Record attendee consent and initialize face search session",
 )
 async def create_search_consent(
-    event_id: uuid.UUID,
+    event_id: str,
     consent_in: ConsentCreate,
     request: Request,
     db: AsyncSession = Depends(get_async_db),
@@ -71,7 +71,7 @@ async def create_search_consent(
     dependencies=[Depends(rate_limit_search)],
 )
 async def search_by_selfie(
-    event_id: uuid.UUID,
+    event_id: str,
     request: Request,
     selfie: UploadFile = File(..., description="Attendee selfie photo (JPEG, PNG, WebP)"),
     session_id: uuid.UUID = Form(..., description="Active search session ID from consent endpoint"),
@@ -102,7 +102,7 @@ async def search_by_selfie(
     summary="Get status and details of an active search session",
 )
 async def get_search_session(
-    event_id: uuid.UUID,
+    event_id: str,
     session_id: uuid.UUID,
     db: AsyncSession = Depends(get_async_db),
 ):
@@ -127,7 +127,7 @@ async def get_search_session(
     summary="Revoke consent and expire search session immediately",
 )
 async def revoke_search_session(
-    event_id: uuid.UUID,
+    event_id: str,
     session_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_async_db),

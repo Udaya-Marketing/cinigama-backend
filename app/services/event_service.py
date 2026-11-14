@@ -63,13 +63,31 @@ class EventService:
     @staticmethod
     async def get_event_by_id(
         db: AsyncSession,
-        event_id: uuid.UUID,
+        event_id: uuid.UUID | str,
     ) -> Event:
-        result = await db.execute(select(Event).where(Event.id == event_id))
-        event = result.scalar_one_or_none()
-        if not event:
-            raise NotFoundError(f"Event with ID {event_id} not found")
-        return event
+        # 1. If it's a UUID object or valid UUID string, check Event.id
+        if isinstance(event_id, uuid.UUID):
+            result = await db.execute(select(Event).where(Event.id == event_id))
+            event = result.scalar_one_or_none()
+            if event:
+                return event
+        elif isinstance(event_id, str):
+            try:
+                parsed_uuid = uuid.UUID(event_id)
+                result = await db.execute(select(Event).where(Event.id == parsed_uuid))
+                event = result.scalar_one_or_none()
+                if event:
+                    return event
+            except (ValueError, AttributeError):
+                pass
+
+            # 2. Check Event.slug (e.g. "52630" or "test-event-1")
+            result = await db.execute(select(Event).where(Event.slug == event_id))
+            event = result.scalar_one_or_none()
+            if event:
+                return event
+
+        raise NotFoundError(f"Event with ID or slug '{event_id}' not found")
 
     @staticmethod
     async def get_event_by_slug(
@@ -112,7 +130,7 @@ class EventService:
     @staticmethod
     async def update_event(
         db: AsyncSession,
-        event_id: uuid.UUID,
+        event_id: uuid.UUID | str,
         event_in: EventUpdate,
         current_user: User,
     ) -> Event:
@@ -138,58 +156,60 @@ class EventService:
     @staticmethod
     async def delete_event(
         db: AsyncSession,
-        event_id: uuid.UUID,
+        event_id: uuid.UUID | str,
         current_user: User,
     ) -> None:
         event = await EventService.get_event_by_id(db, event_id)
         if event.organiser_id != current_user.id and current_user.role != "admin":
             raise PermissionDeniedError("Only the event organiser can delete this event")
 
+        canonical_id = event.id
         # Delete from DB (cascades to photos, faces, sessions, jobs)
         await db.delete(event)
         await db.commit()
 
         # Delete filesystem directory for this event
-        storage_service.delete_event_directory(event_id)
+        storage_service.delete_event_directory(canonical_id)
 
     @staticmethod
     async def get_event_stats(
         db: AsyncSession,
-        event_id: uuid.UUID,
+        event_id: uuid.UUID | str,
         current_user: User,
     ) -> EventStats:
         event = await EventService.get_event_by_id(db, event_id)
         if event.organiser_id != current_user.id and current_user.role != "admin":
             raise PermissionDeniedError("Not authorised to view stats for this event")
 
+        canonical_id = event.id
         # Aggregate counts
         total_photos = (
-            await db.execute(select(func.count(Photo.id)).where(Photo.event_id == event_id))
+            await db.execute(select(func.count(Photo.id)).where(Photo.event_id == canonical_id))
         ).scalar_one()
         pending = (
-            await db.execute(select(func.count(Photo.id)).where(Photo.event_id == event_id, Photo.processing_status == "pending"))
+            await db.execute(select(func.count(Photo.id)).where(Photo.event_id == canonical_id, Photo.processing_status == "pending"))
         ).scalar_one()
         processing = (
-            await db.execute(select(func.count(Photo.id)).where(Photo.event_id == event_id, Photo.processing_status == "processing"))
+            await db.execute(select(func.count(Photo.id)).where(Photo.event_id == canonical_id, Photo.processing_status == "processing"))
         ).scalar_one()
         completed = (
-            await db.execute(select(func.count(Photo.id)).where(Photo.event_id == event_id, Photo.processing_status == "completed"))
+            await db.execute(select(func.count(Photo.id)).where(Photo.event_id == canonical_id, Photo.processing_status == "completed"))
         ).scalar_one()
         failed = (
-            await db.execute(select(func.count(Photo.id)).where(Photo.event_id == event_id, Photo.processing_status == "failed"))
+            await db.execute(select(func.count(Photo.id)).where(Photo.event_id == canonical_id, Photo.processing_status == "failed"))
         ).scalar_one()
         public_photos = (
-            await db.execute(select(func.count(Photo.id)).where(Photo.event_id == event_id, Photo.is_public == True))  # noqa: E712
+            await db.execute(select(func.count(Photo.id)).where(Photo.event_id == canonical_id, Photo.is_public == True))  # noqa: E712
         ).scalar_one()
         private_photos = (
-            await db.execute(select(func.count(Photo.id)).where(Photo.event_id == event_id, Photo.is_public == False))  # noqa: E712
+            await db.execute(select(func.count(Photo.id)).where(Photo.event_id == canonical_id, Photo.is_public == False))  # noqa: E712
         ).scalar_one()
         total_faces = (
-            await db.execute(select(func.count(PhotoFace.id)).where(PhotoFace.event_id == event_id))
+            await db.execute(select(func.count(PhotoFace.id)).where(PhotoFace.event_id == canonical_id))
         ).scalar_one()
 
         return EventStats(
-            event_id=event_id,
+            event_id=canonical_id,
             total_photos=total_photos,
             pending_photos=pending,
             processing_photos=processing,

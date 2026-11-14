@@ -44,7 +44,7 @@ class SearchService:
     @staticmethod
     async def create_session_with_consent(
         db: AsyncSession,
-        event_id: uuid.UUID,
+        event_id: uuid.UUID | str,
         consent_in: ConsentCreate,
         current_user: Optional[User] = None,
         ip_address: Optional[str] = None,
@@ -57,12 +57,13 @@ class SearchService:
         if event.status != "active":
             raise PermissionDeniedError("Event is not currently active")
 
+        canonical_id = event.id
         now = datetime.datetime.now(datetime.timezone.utc)
         expires_at = now + datetime.timedelta(minutes=settings.SEARCH_SESSION_EXPIRE_MINUTES)
 
         session = SearchSession(
             id=uuid.uuid4(),
-            event_id=event_id,
+            event_id=canonical_id,
             attendee_id=current_user.id if current_user else None,
             consent_timestamp=now,
             consent_purpose=consent_in.purpose,
@@ -75,7 +76,7 @@ class SearchService:
         await record_audit_log(
             db=db,
             action="CONSENT_GRANTED",
-            event_id=event_id,
+            event_id=canonical_id,
             user_id=current_user.id if current_user else None,
             details={"purpose": consent_in.purpose, "session_id": str(session.id)},
             ip_address=ip_address,
@@ -88,13 +89,16 @@ class SearchService:
     @staticmethod
     async def get_valid_session(
         db: AsyncSession,
-        event_id: uuid.UUID,
+        event_id: uuid.UUID | str,
         session_id: uuid.UUID,
     ) -> SearchSession:
         """Validate that a search session exists, belongs to the event, and is active/unexpired."""
+        event = await EventService.get_event_by_id(db, event_id)
+        canonical_id = event.id
+
         stmt = select(SearchSession).where(
             SearchSession.id == session_id,
-            SearchSession.event_id == event_id,
+            SearchSession.event_id == canonical_id,
         )
         result = await db.execute(stmt)
         session = result.scalar_one_or_none()
@@ -115,7 +119,7 @@ class SearchService:
     @staticmethod
     async def revoke_session(
         db: AsyncSession,
-        event_id: uuid.UUID,
+        event_id: uuid.UUID | str,
         session_id: uuid.UUID,
         current_user: Optional[User] = None,
         ip_address: Optional[str] = None,
@@ -127,7 +131,7 @@ class SearchService:
         await record_audit_log(
             db=db,
             action="CONSENT_REVOKED",
-            event_id=event_id,
+            event_id=session.event_id,
             user_id=current_user.id if current_user else None,
             details={"session_id": str(session_id)},
             ip_address=ip_address,
@@ -137,7 +141,7 @@ class SearchService:
     @staticmethod
     async def search_faces_for_attendee(
         db: AsyncSession,
-        event_id: uuid.UUID,
+        event_id: uuid.UUID | str,
         session_id: uuid.UUID,
         selfie_file: UploadFile,
         threshold: Optional[float] = None,
@@ -153,7 +157,8 @@ class SearchService:
         6. Combine deduplicated face matches with public photos.
         7. Ensure temporary selfie data is wiped immediately.
         """
-        await SearchService.get_valid_session(db, event_id, session_id)
+        session = await SearchService.get_valid_session(db, event_id, session_id)
+        canonical_id = session.event_id
 
         # Operating threshold
         cos_threshold = threshold if threshold is not None else settings.SFACE_COSINE_THRESHOLD
@@ -190,7 +195,7 @@ class SearchService:
                     func.min(PhotoFace.embedding.cosine_distance(selfie_vec)).label("min_dist"),
                     func.max(PhotoFace.detection_confidence).label("confidence"),
                 )
-                .where(PhotoFace.event_id == event_id)
+                .where(PhotoFace.event_id == canonical_id)
                 .group_by(PhotoFace.photo_id)
                 .having(func.min(PhotoFace.embedding.cosine_distance(selfie_vec)) <= max_dist)
             )
@@ -200,7 +205,7 @@ class SearchService:
                 matched_photos_map[r.photo_id] = (sim, float(r.confidence))
         else:
             # Python-based exact cosine search fallback for SQLite in tests
-            stmt = select(PhotoFace).where(PhotoFace.event_id == event_id)
+            stmt = select(PhotoFace).where(PhotoFace.event_id == canonical_id)
             faces = (await db.execute(stmt)).scalars().all()
             for f in faces:
                 sim = engine.compute_cosine_similarity(selfie_vec, f.embedding)
@@ -216,7 +221,7 @@ class SearchService:
                 select(Photo)
                 .where(
                     Photo.id.in_(matched_photo_ids),
-                    Photo.event_id == event_id,
+                    Photo.event_id == canonical_id,
                     Photo.processing_status == "completed",
                 )
                 .options(selectinload(Photo.faces))
@@ -227,7 +232,7 @@ class SearchService:
         pub_stmt = (
             select(Photo)
             .where(
-                Photo.event_id == event_id,
+                Photo.event_id == canonical_id,
                 Photo.is_public == True,  # noqa: E712
                 Photo.processing_status == "completed",
             )
@@ -295,7 +300,7 @@ class SearchService:
 
         return FaceSearchResponse(
             session_id=session_id,
-            event_id=event_id,
+            event_id=canonical_id,
             faces_detected_in_selfie=1,
             matched_count=len(matched_photos),
             public_count=pub_count,

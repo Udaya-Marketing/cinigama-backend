@@ -60,10 +60,10 @@ async def list_events(
 @router.get(
     "/{event_id}",
     response_model=APIResponse[EventRead],
-    summary="Get event details by ID",
+    summary="Get event details by ID or slug",
 )
 async def get_event(
-    event_id: uuid.UUID,
+    event_id: str,
     db: AsyncSession = Depends(get_async_db),
 ):
     event = await EventService.get_event_by_id(db, event_id)
@@ -80,7 +80,7 @@ async def get_event(
     summary="Update event configuration",
 )
 async def update_event(
-    event_id: uuid.UUID,
+    event_id: str,
     event_in: EventUpdate,
     db: AsyncSession = Depends(get_async_db),
     current_user: User = Depends(require_organiser),
@@ -99,7 +99,7 @@ async def update_event(
     summary="Delete event and all associated photos and biometric indexes",
 )
 async def delete_event(
-    event_id: uuid.UUID,
+    event_id: str,
     db: AsyncSession = Depends(get_async_db),
     current_user: User = Depends(require_organiser),
 ):
@@ -117,7 +117,7 @@ async def delete_event(
     summary="Get event photo and face processing statistics",
 )
 async def get_event_stats(
-    event_id: uuid.UUID,
+    event_id: str,
     db: AsyncSession = Depends(get_async_db),
     current_user: User = Depends(require_organiser),
 ):

@@ -20,14 +20,15 @@ router = APIRouter(prefix="/events/{event_id}/photos/{photo_id}", tags=["Image D
 
 async def check_image_access(
     db: AsyncSession,
-    event_id: uuid.UUID,
+    event_id: str,
     photo_id: uuid.UUID,
     session_id: Optional[uuid.UUID] = None,
     current_user: Optional[User] = None,
 ) -> Photo:
     """Verify authorization before serving any photograph file."""
     event = await EventService.get_event_by_id(db, event_id)
-    photo = await PhotoService.get_photo_by_id(db, event_id, photo_id)
+    canonical_id = event.id
+    photo = await PhotoService.get_photo_by_id(db, canonical_id, photo_id)
 
     # If photo is explicitly marked public and event is active/accessible
     if photo.is_public:
@@ -40,7 +41,7 @@ async def check_image_access(
     # If attendee supplied an active search session ID, verify session validity
     if session_id:
         # Check session is valid and active
-        await SearchService.get_valid_session(db, event_id, session_id)
+        await SearchService.get_valid_session(db, canonical_id, session_id)
         # Attendee has permission to access face-matched private photos
         return photo
 
@@ -54,7 +55,7 @@ async def check_image_access(
     summary="Get optimized WebP thumbnail for a photograph",
 )
 async def get_thumbnail(
-    event_id: uuid.UUID,
+    event_id: str,
     photo_id: uuid.UUID,
     session_id: Optional[uuid.UUID] = Query(None, description="Active search session ID for private photos"),
     db: AsyncSession = Depends(get_async_db),
@@ -88,7 +89,7 @@ async def get_thumbnail(
     summary="View full-resolution photograph inline",
 )
 async def view_photo(
-    event_id: uuid.UUID,
+    event_id: str,
     photo_id: uuid.UUID,
     session_id: Optional[uuid.UUID] = Query(None, description="Active search session ID for private photos"),
     db: AsyncSession = Depends(get_async_db),
@@ -118,7 +119,7 @@ async def view_photo(
     summary="Download full-resolution photograph as an attachment",
 )
 async def download_photo(
-    event_id: uuid.UUID,
+    event_id: str,
     photo_id: uuid.UUID,
     session_id: Optional[uuid.UUID] = Query(None, description="Active search session ID for private photos"),
     db: AsyncSession = Depends(get_async_db),

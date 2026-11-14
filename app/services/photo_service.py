@@ -25,7 +25,7 @@ class PhotoService:
     @staticmethod
     async def upload_single_photo(
         db: AsyncSession,
-        event_id: uuid.UUID,
+        event_id: uuid.UUID | str,
         file: UploadFile,
         current_user: User,
         is_public: bool = False,
@@ -34,6 +34,7 @@ class PhotoService:
         if event.organiser_id != current_user.id and current_user.role != "admin":
             raise PermissionDeniedError("Not authorised to upload photos to this event")
 
+        canonical_id = event.id
         content = await file.read()
         filename = file.filename or "photo.jpg"
 
@@ -43,7 +44,7 @@ class PhotoService:
 
         photo_id = uuid.uuid4()
         storage_path = storage_service.save_original_photo(
-            event_id=event_id,
+            event_id=canonical_id,
             photo_id=photo_id,
             file_bytes=content,
             ext=ext,
@@ -52,7 +53,7 @@ class PhotoService:
 
         photo = Photo(
             id=photo_id,
-            event_id=event_id,
+            event_id=canonical_id,
             uploaded_by=current_user.id,
             original_filename=filename,
             storage_path=str(storage_path),
@@ -83,7 +84,7 @@ class PhotoService:
     @staticmethod
     async def upload_bulk_photos(
         db: AsyncSession,
-        event_id: uuid.UUID,
+        event_id: uuid.UUID | str,
         files: List[UploadFile],
         current_user: User,
         is_public: bool = False,
@@ -92,6 +93,7 @@ class PhotoService:
         if event.organiser_id != current_user.id and current_user.role != "admin":
             raise PermissionDeniedError("Not authorised to upload photos to this event")
 
+        canonical_id = event.id
         successful_photos: List[PhotoRead] = []
         errors: List[dict] = []
 
@@ -104,7 +106,7 @@ class PhotoService:
                 )
                 photo_id = uuid.uuid4()
                 storage_path = storage_service.save_original_photo(
-                    event_id=event_id,
+                    event_id=canonical_id,
                     photo_id=photo_id,
                     file_bytes=content,
                     ext=ext,
@@ -113,7 +115,7 @@ class PhotoService:
 
                 photo = Photo(
                     id=photo_id,
-                    event_id=event_id,
+                    event_id=canonical_id,
                     uploaded_by=current_user.id,
                     original_filename=filename,
                     storage_path=str(storage_path),
@@ -155,7 +157,7 @@ class PhotoService:
     @staticmethod
     async def list_event_photos(
         db: AsyncSession,
-        event_id: uuid.UUID,
+        event_id: uuid.UUID | str,
         current_user: Optional[User] = None,
         status: Optional[str] = None,
         is_public: Optional[bool] = None,
@@ -163,13 +165,14 @@ class PhotoService:
         page_size: int = 20,
     ) -> Tuple[List[PhotoRead], int]:
         event = await EventService.get_event_by_id(db, event_id)
+        canonical_id = event.id
 
         # Check access permission:
         # If user is organiser or admin, can see all photos and filter by status
         is_manager = current_user and (current_user.id == event.organiser_id or current_user.role == "admin")
 
-        query = select(Photo).where(Photo.event_id == event_id)
-        count_query = select(func.count(Photo.id)).where(Photo.event_id == event_id)
+        query = select(Photo).where(Photo.event_id == canonical_id)
+        count_query = select(func.count(Photo.id)).where(Photo.event_id == canonical_id)
 
         if not is_manager:
             # Attendees can only list public photos through this general endpoint
@@ -204,10 +207,12 @@ class PhotoService:
     @staticmethod
     async def get_photo_by_id(
         db: AsyncSession,
-        event_id: uuid.UUID,
+        event_id: uuid.UUID | str,
         photo_id: uuid.UUID,
     ) -> Photo:
-        query = select(Photo).where(Photo.id == photo_id, Photo.event_id == event_id).options(selectinload(Photo.faces))
+        event = await EventService.get_event_by_id(db, event_id)
+        canonical_id = event.id
+        query = select(Photo).where(Photo.id == photo_id, Photo.event_id == canonical_id).options(selectinload(Photo.faces))
         result = await db.execute(query)
         photo = result.scalar_one_or_none()
         if not photo:
@@ -217,7 +222,7 @@ class PhotoService:
     @staticmethod
     async def update_photo(
         db: AsyncSession,
-        event_id: uuid.UUID,
+        event_id: uuid.UUID | str,
         photo_id: uuid.UUID,
         photo_in: PhotoUpdate,
         current_user: User,
@@ -226,7 +231,8 @@ class PhotoService:
         if event.organiser_id != current_user.id and current_user.role != "admin":
             raise PermissionDeniedError("Not authorised to edit photos in this event")
 
-        photo = await PhotoService.get_photo_by_id(db, event_id, photo_id)
+        canonical_id = event.id
+        photo = await PhotoService.get_photo_by_id(db, canonical_id, photo_id)
         if photo_in.is_public is not None:
             photo.is_public = photo_in.is_public
 
@@ -237,7 +243,7 @@ class PhotoService:
     @staticmethod
     async def delete_photo(
         db: AsyncSession,
-        event_id: uuid.UUID,
+        event_id: uuid.UUID | str,
         photo_id: uuid.UUID,
         current_user: User,
     ) -> None:
@@ -245,7 +251,8 @@ class PhotoService:
         if event.organiser_id != current_user.id and current_user.role != "admin":
             raise PermissionDeniedError("Not authorised to delete photos in this event")
 
-        photo = await PhotoService.get_photo_by_id(db, event_id, photo_id)
+        canonical_id = event.id
+        photo = await PhotoService.get_photo_by_id(db, canonical_id, photo_id)
         orig_path = photo.storage_path
         thumb_path = photo.thumbnail_path
 
@@ -257,7 +264,7 @@ class PhotoService:
     @staticmethod
     async def batch_update_photos(
         db: AsyncSession,
-        event_id: uuid.UUID,
+        event_id: uuid.UUID | str,
         photo_ids: List[uuid.UUID],
         is_public: bool,
         current_user: User,
@@ -266,7 +273,8 @@ class PhotoService:
         if event.organiser_id != current_user.id and current_user.role != "admin":
             raise PermissionDeniedError("Not authorised to edit photos in this event")
 
-        stmt = select(Photo).where(Photo.id.in_(photo_ids), Photo.event_id == event_id)
+        canonical_id = event.id
+        stmt = select(Photo).where(Photo.id.in_(photo_ids), Photo.event_id == canonical_id)
         photos = list((await db.execute(stmt)).scalars().all())
 
         updated_ids = []
@@ -280,7 +288,7 @@ class PhotoService:
     @staticmethod
     async def batch_delete_photos(
         db: AsyncSession,
-        event_id: uuid.UUID,
+        event_id: uuid.UUID | str,
         photo_ids: List[uuid.UUID],
         current_user: User,
     ) -> List[uuid.UUID]:
@@ -288,7 +296,8 @@ class PhotoService:
         if event.organiser_id != current_user.id and current_user.role != "admin":
             raise PermissionDeniedError("Not authorised to delete photos in this event")
 
-        stmt = select(Photo).where(Photo.id.in_(photo_ids), Photo.event_id == event_id)
+        canonical_id = event.id
+        stmt = select(Photo).where(Photo.id.in_(photo_ids), Photo.event_id == canonical_id)
         photos = list((await db.execute(stmt)).scalars().all())
 
         deleted_ids = []
@@ -309,29 +318,30 @@ class PhotoService:
     @staticmethod
     async def get_processing_status(
         db: AsyncSession,
-        event_id: uuid.UUID,
+        event_id: uuid.UUID | str,
         current_user: User,
     ) -> PhotoProcessingStatusResponse:
         event = await EventService.get_event_by_id(db, event_id)
         if event.organiser_id != current_user.id and current_user.role != "admin":
             raise PermissionDeniedError("Not authorised to view processing status")
 
-        total = (await db.execute(select(func.count(Photo.id)).where(Photo.event_id == event_id))).scalar_one()
+        canonical_id = event.id
+        total = (await db.execute(select(func.count(Photo.id)).where(Photo.event_id == canonical_id))).scalar_one()
         pending = (
-            await db.execute(select(func.count(Photo.id)).where(Photo.event_id == event_id, Photo.processing_status == "pending"))
+            await db.execute(select(func.count(Photo.id)).where(Photo.event_id == canonical_id, Photo.processing_status == "pending"))
         ).scalar_one()
         processing = (
-            await db.execute(select(func.count(Photo.id)).where(Photo.event_id == event_id, Photo.processing_status == "processing"))
+            await db.execute(select(func.count(Photo.id)).where(Photo.event_id == canonical_id, Photo.processing_status == "processing"))
         ).scalar_one()
         completed = (
-            await db.execute(select(func.count(Photo.id)).where(Photo.event_id == event_id, Photo.processing_status == "completed"))
+            await db.execute(select(func.count(Photo.id)).where(Photo.event_id == canonical_id, Photo.processing_status == "completed"))
         ).scalar_one()
         failed = (
-            await db.execute(select(func.count(Photo.id)).where(Photo.event_id == event_id, Photo.processing_status == "failed"))
+            await db.execute(select(func.count(Photo.id)).where(Photo.event_id == canonical_id, Photo.processing_status == "failed"))
         ).scalar_one()
 
         return PhotoProcessingStatusResponse(
-            event_id=event_id,
+            event_id=canonical_id,
             total=total,
             pending=pending,
             processing=processing,

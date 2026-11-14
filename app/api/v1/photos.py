@@ -32,7 +32,7 @@ router = APIRouter(prefix="/events/{event_id}/photos", tags=["Photos"])
     summary="Upload a single event photograph",
 )
 async def upload_photo(
-    event_id: uuid.UUID,
+    event_id: str,
     file: UploadFile = File(..., description="Image file (JPEG, PNG, WebP)"),
     is_public: bool = Form(default=False, description="Whether photograph is publicly visible"),
     db: AsyncSession = Depends(get_async_db),
@@ -59,7 +59,7 @@ async def upload_photo(
     summary="Bulk upload multiple event photographs",
 )
 async def upload_bulk_photos(
-    event_id: uuid.UUID,
+    event_id: str,
     files: List[UploadFile] = File(..., description="List of image files to upload"),
     is_public: bool = Form(default=False),
     db: AsyncSession = Depends(get_async_db),
@@ -85,7 +85,7 @@ async def upload_bulk_photos(
     summary="List event photographs with pagination and status filters",
 )
 async def list_photos(
-    event_id: uuid.UUID,
+    event_id: str,
     status: Optional[str] = Query(None, pattern="^(pending|processing|completed|failed)$"),
     is_public: Optional[bool] = Query(None),
     page: int = Query(1, ge=1),
@@ -122,7 +122,7 @@ async def list_photos(
     summary="Get current face processing job statuses for event",
 )
 async def get_processing_status(
-    event_id: uuid.UUID,
+    event_id: str,
     db: AsyncSession = Depends(get_async_db),
     current_user: User = Depends(require_organiser),
 ):
@@ -140,7 +140,7 @@ async def get_processing_status(
     summary="Get photo metadata by ID",
 )
 async def get_photo(
-    event_id: uuid.UUID,
+    event_id: str,
     photo_id: uuid.UUID,
     db: AsyncSession = Depends(get_async_db),
 ):
@@ -160,7 +160,7 @@ async def get_photo(
     summary="Update photo visibility (public / private)",
 )
 async def update_photo(
-    event_id: uuid.UUID,
+    event_id: str,
     photo_id: uuid.UUID,
     photo_in: PhotoUpdate,
     db: AsyncSession = Depends(get_async_db),
@@ -182,7 +182,7 @@ async def update_photo(
     summary="Delete photograph, thumbnails, and associated face embeddings",
 )
 async def delete_photo(
-    event_id: uuid.UUID,
+    event_id: str,
     photo_id: uuid.UUID,
     db: AsyncSession = Depends(get_async_db),
     current_user: User = Depends(require_organiser),
@@ -201,7 +201,7 @@ async def delete_photo(
     summary="Batch update visibility (public/private) for multiple photos",
 )
 async def batch_update_photos(
-    event_id: uuid.UUID,
+    event_id: str,
     payload: PhotoBatchUpdate,
     db: AsyncSession = Depends(get_async_db),
     current_user: User = Depends(require_organiser),
@@ -226,7 +226,7 @@ async def batch_update_photos(
     summary="Batch delete multiple photographs and their face vectors",
 )
 async def batch_delete_photos(
-    event_id: uuid.UUID,
+    event_id: str,
     payload: PhotoBatchDelete,
     db: AsyncSession = Depends(get_async_db),
     current_user: User = Depends(require_organiser),
