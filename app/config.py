@@ -41,7 +41,11 @@ class Settings(BaseSettings):
 
     # Storage Backend ('r2' or 'local')
     STORAGE_BACKEND: str = "r2"
-    STORAGE_BASE_DIR: Path = Path("/tmp/storage") if os.environ.get("VERCEL") else Path("storage")
+    STORAGE_BASE_DIR: Path = (
+        Path("/tmp/storage")
+        if (os.environ.get("VERCEL") or os.environ.get("VERCEL_ENV") or os.environ.get("AWS_LAMBDA_FUNCTION_NAME"))
+        else Path("storage")
+    )
     MODELS_DIR: Path = Path("models_zoo")
     YUNET_MODEL_FILE: str = "face_detection_yunet_2023mar.onnx"
     SFACE_MODEL_FILE: str = "face_recognition_sface_2021dec.onnx"

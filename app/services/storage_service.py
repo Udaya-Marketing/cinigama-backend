@@ -328,7 +328,8 @@ class StorageService:
 
     def check_disk_space(self) -> dict:
         """Return storage status."""
-        stat = shutil.disk_usage(self.base_dir)
+        check_path = self.base_dir if self.base_dir.exists() else Path("/tmp")
+        stat = shutil.disk_usage(check_path)
         info = {
             "backend": "cloudflare_r2" if self.is_r2 else "local",
             "bucket": settings.R2_BUCKET_NAME if self.is_r2 else None,
