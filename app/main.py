@@ -95,15 +95,18 @@ class VercelPathRewriteMiddleware:
 
     async def __call__(self, scope, receive, send):
         if scope.get("type") == "http":
-            headers = dict(scope.get("headers", []))
-            matched = (
-                headers.get(b"x-matched-path")
-                or headers.get(b"x-vercel-matched-path")
-            )
-            if matched:
-                scope["path"] = matched.decode("utf-8").split("?")[0]
-            elif scope.get("raw_path") and scope["raw_path"] not in (b"/api/index.py", b"/api/index"):
-                scope["path"] = scope["raw_path"].decode("utf-8").split("?")[0]
+            query_string = scope.get("query_string", b"").decode("latin1")
+            if "path=" in query_string:
+                from urllib.parse import parse_qs, urlencode
+                params = parse_qs(query_string, keep_blank_values=True)
+                if "path" in params:
+                    actual_path = params.pop("path")[0]
+                    if not actual_path.startswith("/"):
+                        actual_path = "/" + actual_path
+                    scope["path"] = actual_path
+                    scope["query_string"] = urlencode(params, doseq=True).encode("latin1")
+            elif scope.get("path") in ("/api/index.py", "/api/index", "/api"):
+                scope["path"] = "/"
         await self.app(scope, receive, send)
 
 
@@ -115,12 +118,7 @@ app.add_middleware(VercelPathRewriteMiddleware)
 async def not_found_handler(request: Request, exc):
     return JSONResponse(
         status_code=404,
-        content={
-            "detail": "Not Found",
-            "path": request.scope.get("path"),
-            "query_string": request.scope.get("query_string", b"").decode("latin1"),
-            "headers": {k: v for k, v in request.headers.items() if "auth" not in k.lower()},
-        },
+        content={"detail": "Not Found"},
         headers=_get_cors_headers(request),
     )
 
