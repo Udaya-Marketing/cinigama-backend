@@ -23,6 +23,25 @@ from app.services.storage_service import storage_service
 
 class PhotoService:
     @staticmethod
+    def to_photo_read(photo: Photo, canonical_id: uuid.UUID | str) -> PhotoRead:
+        """Convert a Photo model into a PhotoRead schema with direct CDN / presigned URLs."""
+        pread = PhotoRead.model_validate(photo)
+        # Avoid triggering async lazy load if faces relationship was not preloaded
+        if "faces" in photo.__dict__ and photo.__dict__["faces"] is not None:
+            pread.face_count = len(photo.__dict__["faces"])
+        else:
+            pread.face_count = 0
+
+        if storage_service.is_r2:
+            target_key = photo.thumbnail_path or photo.storage_path
+            pread.thumbnail_url = storage_service.generate_presigned_url(target_key)
+            pread.url = storage_service.generate_presigned_url(photo.storage_path)
+        else:
+            pread.thumbnail_url = f"/api/v1/events/{canonical_id}/photos/{photo.id}/thumbnail"
+            pread.url = f"/api/v1/events/{canonical_id}/photos/{photo.id}/view"
+        return pread
+
+    @staticmethod
     async def upload_single_photo(
         db: AsyncSession,
         event_id: uuid.UUID | str,
@@ -139,7 +158,7 @@ class PhotoService:
                 db.add(job)
                 await db.flush()
 
-                successful_photos.append(PhotoRead.model_validate(photo))
+                successful_photos.append(PhotoService.to_photo_read(photo, canonical_id))
 
             except Exception as e:
                 errors.append({"filename": filename, "error": str(e)})
@@ -196,11 +215,7 @@ class PhotoService:
         )
         photos = (await db.execute(query)).scalars().all()
 
-        photo_reads = []
-        for p in photos:
-            pread = PhotoRead.model_validate(p)
-            pread.face_count = len(p.faces) if p.faces else 0
-            photo_reads.append(pread)
+        photo_reads = [PhotoService.to_photo_read(p, canonical_id) for p in photos]
 
         return photo_reads, total
 

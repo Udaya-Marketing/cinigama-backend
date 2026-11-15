@@ -1,3 +1,4 @@
+import os
 from collections.abc import AsyncGenerator, Generator
 from sqlalchemy import create_engine
 from sqlalchemy.ext.asyncio import (
@@ -9,17 +10,32 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import settings
 
+is_serverless = bool(
+    os.environ.get("VERCEL")
+    or os.environ.get("VERCEL_ENV")
+    or os.environ.get("AWS_LAMBDA_FUNCTION_NAME")
+)
+
 # Async Engine and Session for FastAPI
 async_db_url = settings.get_database_url()
 is_sqlite_async = async_db_url.startswith("sqlite")
 
 async_engine_kwargs = {"echo": settings.DEBUG}
 if not is_sqlite_async:
-    async_engine_kwargs.update({
-        "pool_size": settings.DB_POOL_SIZE,
-        "max_overflow": settings.DB_MAX_OVERFLOW,
-        "pool_pre_ping": True,
-    })
+    if is_serverless:
+        # Optimized for serverless: smaller pool per instance, aggressive recycling
+        async_engine_kwargs.update({
+            "pool_size": 2,
+            "max_overflow": 3,
+            "pool_recycle": 300,
+            "pool_pre_ping": True,
+        })
+    else:
+        async_engine_kwargs.update({
+            "pool_size": settings.DB_POOL_SIZE,
+            "max_overflow": settings.DB_MAX_OVERFLOW,
+            "pool_pre_ping": True,
+        })
 
 async_engine = create_async_engine(async_db_url, **async_engine_kwargs)
 

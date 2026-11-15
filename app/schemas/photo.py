@@ -29,6 +29,8 @@ class PhotoRead(BaseModel):
     created_at: datetime.datetime
     updated_at: datetime.datetime
     face_count: Optional[int] = 0
+    thumbnail_url: Optional[str] = None
+    url: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 

@@ -48,7 +48,7 @@ async def upload_photo(
     return APIResponse(
         success=True,
         message="Photo uploaded and queued for face indexing",
-        data=PhotoRead.model_validate(photo),
+        data=PhotoService.to_photo_read(photo, event_id),
     )
 
 
@@ -145,12 +145,10 @@ async def get_photo(
     db: AsyncSession = Depends(get_async_db),
 ):
     photo = await PhotoService.get_photo_by_id(db, event_id, photo_id)
-    pread = PhotoRead.model_validate(photo)
-    pread.face_count = len(photo.faces) if photo.faces else 0
     return APIResponse(
         success=True,
         message="Photo metadata retrieved",
-        data=pread,
+        data=PhotoService.to_photo_read(photo, event_id),
     )
 
 
@@ -167,12 +165,10 @@ async def update_photo(
     current_user: User = Depends(require_organiser),
 ):
     updated = await PhotoService.update_photo(db, event_id, photo_id, photo_in, current_user)
-    pread = PhotoRead.model_validate(updated)
-    pread.face_count = len(updated.faces) if updated.faces else 0
     return APIResponse(
         success=True,
         message="Photo updated successfully",
-        data=pread,
+        data=PhotoService.to_photo_read(updated, event_id),
     )
 
 

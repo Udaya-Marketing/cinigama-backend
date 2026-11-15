@@ -30,6 +30,7 @@ from app.schemas.search import (
 )
 from app.services.event_service import EventService
 from app.services.face_service import FaceRecognitionEngine
+from app.services.photo_service import PhotoService
 
 
 def to_utc(dt: Optional[datetime.datetime]) -> Optional[datetime.datetime]:
@@ -254,8 +255,7 @@ class SearchService:
         for p in matched_photos_sorted:
             seen_photo_ids.add(p.id)
             sim, conf = matched_photos_map[p.id]
-            pread = PhotoRead.model_validate(p)
-            pread.face_count = len(p.faces) if p.faces else 0
+            pread = PhotoService.to_photo_read(p, canonical_id)
             items.append(
                 MatchedPhotoItem(
                     photo=pread,
@@ -270,8 +270,7 @@ class SearchService:
         for p in public_photos:
             if p.id not in seen_photo_ids:
                 seen_photo_ids.add(p.id)
-                pread = PhotoRead.model_validate(p)
-                pread.face_count = len(p.faces) if p.faces else 0
+                pread = PhotoService.to_photo_read(p, canonical_id)
                 items.append(
                     MatchedPhotoItem(
                         photo=pread,
