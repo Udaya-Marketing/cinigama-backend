@@ -68,6 +68,25 @@ async def test_get_event_stats(client: AsyncClient, test_event, organiser_header
 
 
 @pytest.mark.asyncio
+async def test_get_event_details_with_photos(client: AsyncClient, test_event):
+    response = await client.get(f"/api/v1/events/{test_event.id}/details?page=1&page_size=10")
+    assert response.status_code == 200
+    res_data = response.json()
+    assert res_data["success"] is True
+    data = res_data["data"]
+    assert data["event"]["id"] == str(test_event.id)
+    assert "total_photos" in data
+    assert "public_photos" in data
+    assert "photos" in data
+    assert isinstance(data["photos"], list)
+    assert data["page"] == 1
+    assert data["page_size"] == 10
+    assert data["total_pages"] >= 1
+    assert "has_next" in data
+    assert "has_prev" in data
+
+
+@pytest.mark.asyncio
 async def test_delete_event(client: AsyncClient, test_event, organiser_headers: dict):
     response = await client.delete(
         f"/api/v1/events/{test_event.id}",

@@ -1,7 +1,9 @@
 import datetime
 import uuid
-from typing import Optional
+from typing import List, Optional
 from pydantic import BaseModel, ConfigDict, Field
+
+from app.schemas.photo import PhotoRead
 
 
 class EventBase(BaseModel):
@@ -32,8 +34,22 @@ class EventRead(EventBase):
     status: str
     created_at: datetime.datetime
     updated_at: datetime.datetime
+    total_photos: Optional[int] = 0
+    public_photos: Optional[int] = 0
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class EventDetailsWithPhotos(BaseModel):
+    event: EventRead
+    total_photos: int
+    public_photos: int
+    photos: List[PhotoRead]
+    page: int
+    page_size: int
+    total_pages: int
+    has_next: bool
+    has_prev: bool
 
 
 class EventStats(BaseModel):

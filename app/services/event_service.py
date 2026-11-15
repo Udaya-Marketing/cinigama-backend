@@ -1,15 +1,22 @@
 import re
 import uuid
 from typing import List, Optional, Tuple
-from sqlalchemy import func, select
+from sqlalchemy import and_, case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 from app.core.exceptions import ConflictError, NotFoundError, PermissionDeniedError
 from app.core.security import hash_password, verify_password
 from app.models.event import Event
 from app.models.face import PhotoFace
 from app.models.photo import Photo
 from app.models.user import User
-from app.schemas.event import EventCreate, EventStats, EventUpdate
+from app.schemas.event import (
+    EventCreate,
+    EventDetailsWithPhotos,
+    EventRead,
+    EventStats,
+    EventUpdate,
+)
 from app.services.storage_service import storage_service
 
 
@@ -88,6 +95,77 @@ class EventService:
                 return event
 
         raise NotFoundError(f"Event with ID or slug '{event_id}' not found")
+
+    @staticmethod
+    async def get_event_counts(
+        db: AsyncSession,
+        event_id: uuid.UUID,
+    ) -> Tuple[int, int]:
+        """Return (total_photos, public_photos) counts for an event."""
+        stmt = (
+            select(
+                func.count(Photo.id).label("total_photos"),
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (and_(Photo.is_public == True, Photo.processing_status == "completed"), 1),  # noqa: E712
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ).label("public_photos"),
+            )
+            .where(Photo.event_id == event_id)
+        )
+        row = (await db.execute(stmt)).one()
+        return int(row.total_photos or 0), int(row.public_photos or 0)
+
+    @staticmethod
+    async def get_event_details_with_photos(
+        db: AsyncSession,
+        event_id: uuid.UUID | str,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> EventDetailsWithPhotos:
+        """Fetch full event details, aggregated photo counts, and paginated public photos with direct URLs."""
+        event = await EventService.get_event_by_id(db, event_id)
+        canonical_id = event.id
+        total_photos, public_photos = await EventService.get_event_counts(db, canonical_id)
+
+        # Query public completed photos with pagination
+        photos_stmt = (
+            select(Photo)
+            .where(
+                Photo.event_id == canonical_id,
+                Photo.is_public == True,  # noqa: E712
+                Photo.processing_status == "completed",
+            )
+            .options(selectinload(Photo.faces))
+            .order_by(Photo.created_at.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+        photos = (await db.execute(photos_stmt)).scalars().all()
+        from app.services.photo_service import PhotoService
+        photo_reads = [PhotoService.to_photo_read(p, canonical_id) for p in photos]
+
+        total_pages = (public_photos + page_size - 1) // page_size if public_photos > 0 else 1
+
+        eread = EventRead.model_validate(event)
+        eread.total_photos = total_photos
+        eread.public_photos = public_photos
+
+        return EventDetailsWithPhotos(
+            event=eread,
+            total_photos=total_photos,
+            public_photos=public_photos,
+            photos=photo_reads,
+            page=page,
+            page_size=page_size,
+            total_pages=total_pages,
+            has_next=page < total_pages,
+            has_prev=page > 1,
+        )
 
     @staticmethod
     async def get_event_by_slug(

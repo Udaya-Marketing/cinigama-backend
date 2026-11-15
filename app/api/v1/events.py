@@ -5,7 +5,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_async_db, get_current_user, get_optional_user, require_organiser
 from app.models.user import User
-from app.schemas.event import EventCreate, EventRead, EventStats, EventUpdate
+from app.schemas.event import (
+    EventCreate,
+    EventDetailsWithPhotos,
+    EventRead,
+    EventStats,
+    EventUpdate,
+)
 from app.schemas.response import APIResponse, PaginatedResponse
 from app.services.event_service import EventService
 
@@ -67,10 +73,38 @@ async def get_event(
     db: AsyncSession = Depends(get_async_db),
 ):
     event = await EventService.get_event_by_id(db, event_id)
+    total_photos, public_photos = await EventService.get_event_counts(db, event.id)
+    eread = EventRead.model_validate(event)
+    eread.total_photos = total_photos
+    eread.public_photos = public_photos
     return APIResponse(
         success=True,
         message="Event details retrieved",
-        data=EventRead.model_validate(event),
+        data=eread,
+    )
+
+
+@router.get(
+    "/{event_id}/details",
+    response_model=APIResponse[EventDetailsWithPhotos],
+    summary="Get event details along with total photos count, public photos count, and paginated public photos with direct URLs",
+)
+async def get_event_details_with_photos(
+    event_id: str,
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(20, ge=1, le=100, description="Items per page"),
+    db: AsyncSession = Depends(get_async_db),
+):
+    details = await EventService.get_event_details_with_photos(
+        db=db,
+        event_id=event_id,
+        page=page,
+        page_size=page_size,
+    )
+    return APIResponse(
+        success=True,
+        message="Event details and public photos retrieved successfully",
+        data=details,
     )
 
 
