@@ -69,7 +69,7 @@ class Settings(BaseSettings):
 
     # Watermark / Logo Settings
     WATERMARK_ENABLED: bool = True
-    WATERMARK_LOGO_PATH: Path = Path("storage/logo/logo-black.webp")
+    WATERMARK_LOGO_PATH: Path = Path("storage/logo/logo-white.webp")
     WATERMARK_OPACITY: float = 0.50  # 50% fade
     WATERMARK_SCALE: float = 0.15  # 15% of photo width
     WATERMARK_MARGIN_PERCENT: float = 0.02  # 2% padding from edges

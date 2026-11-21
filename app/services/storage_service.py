@@ -132,9 +132,9 @@ class StorageService:
         if getattr(self, "_watermark_logo", None) is None:
             candidates = [
                 Path(settings.WATERMARK_LOGO_PATH),
-                self.base_dir / "logo" / "logo-black.webp",
-                Path("storage/logo/logo-black.webp"),
-                Path(__file__).resolve().parent.parent / "assets" / "logo-black.webp",
+                self.base_dir / "logo" / "logo-white.webp",
+                Path("storage/logo/logo-white.webp"),
+                Path(__file__).resolve().parent.parent / "assets" / "logo-white.webp",
             ]
             logo_file = None
             for p in candidates:
