@@ -24,6 +24,8 @@ htmlcov/
 .LSOverride
 
 # Storage & Runtime data
-storage/
+storage/*
+!storage/logo/
+!storage/logo/**
 temp/
 *.log

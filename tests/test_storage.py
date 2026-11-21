@@ -40,24 +40,25 @@ def test_storage_watermark_applied(tmp_path: Path):
     from PIL import Image
     service = StorageService(base_dir=tmp_path)
 
-    # Pure white image (1000x800)
-    base_img = Image.new("RGB", (1000, 800), (255, 255, 255))
+    # Base image with dark tone (1000x800) so white logo is clearly distinguishable
+    base_color = (40, 40, 50)
+    base_img = Image.new("RGB", (1000, 800), base_color)
     watermarked = service.apply_watermark(base_img)
 
     assert watermarked.size == (1000, 800)
     assert watermarked.mode == "RGB"
 
-    # Bottom left pixel must remain pure white
-    assert watermarked.getpixel((50, 750)) == (255, 255, 255)
+    # Bottom left pixel must remain base color
+    assert watermarked.getpixel((50, 750)) == base_color
 
-    # If logo file exists, top right corner must have non-white watermarked pixels
+    # If logo file exists, top right corner must have blended watermarked pixels
     logo = service.get_watermark_logo()
     if logo is not None:
         # Check area in top-right corner where watermark sits
         found_watermark = False
         for y in range(20, 150):
             for x in range(800, 980):
-                if watermarked.getpixel((x, y)) != (255, 255, 255):
+                if watermarked.getpixel((x, y)) != base_color:
                     found_watermark = True
                     break
             if found_watermark:

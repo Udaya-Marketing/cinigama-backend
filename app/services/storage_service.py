@@ -135,19 +135,26 @@ class StorageService:
                 self.base_dir / "logo" / "logo-white.webp",
                 Path("storage/logo/logo-white.webp"),
                 Path(__file__).resolve().parent.parent / "assets" / "logo-white.webp",
+                Path("app/assets/logo-white.webp"),
+                # Fallbacks to black logo if white is missing
+                self.base_dir / "logo" / "logo-black.webp",
+                Path("storage/logo/logo-black.webp"),
+                Path(__file__).resolve().parent.parent / "assets" / "logo-black.webp",
+                Path("app/assets/logo-black.webp"),
             ]
             logo_file = None
             for p in candidates:
                 if p.is_file():
-                    logo_file = p
+                    logo_file = p.resolve()
                     break
 
             if not logo_file:
-                app_logger.debug("Watermark logo file not found in candidate paths.")
+                app_logger.warning("Watermark logo file not found in any candidate path.")
                 return None
 
             try:
                 self._watermark_logo = Image.open(logo_file).convert("RGBA")
+                app_logger.info(f"Loaded watermark logo successfully from: {logo_file}")
             except Exception as e:
                 app_logger.warning(f"Could not load watermark logo from {logo_file}: {e}")
                 return None
