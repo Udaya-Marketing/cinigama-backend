@@ -67,6 +67,13 @@ class Settings(BaseSettings):
     THUMBNAIL_MAX_DIMENSION_PX: int = 800
     THUMBNAIL_WEBP_QUALITY: int = 80
 
+    # Watermark / Logo Settings
+    WATERMARK_ENABLED: bool = True
+    WATERMARK_LOGO_PATH: Path = Path("storage/logo/logo-black.webp")
+    WATERMARK_OPACITY: float = 0.50  # 50% fade
+    WATERMARK_SCALE: float = 0.15  # 15% of photo width
+    WATERMARK_MARGIN_PERCENT: float = 0.02  # 2% padding from edges
+
     # Face Recognition Engine Parameters
     YUNET_SCORE_THRESHOLD: float = 0.70
     YUNET_NMS_THRESHOLD: float = 0.30

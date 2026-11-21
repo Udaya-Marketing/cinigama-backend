@@ -24,6 +24,7 @@ class StorageService:
         except OSError:
             pass
         self._s3_client = None
+        self._watermark_logo = None
 
     @property
     def base_dir(self) -> Path:
@@ -126,6 +127,86 @@ class StorageService:
 
         return mime_type, width, height, ext
 
+    def get_watermark_logo(self) -> Optional[Image.Image]:
+        """Load and cache the watermark logo if available."""
+        if getattr(self, "_watermark_logo", None) is None:
+            candidates = [
+                Path(settings.WATERMARK_LOGO_PATH),
+                self.base_dir / "logo" / "logo-black.webp",
+                Path("storage/logo/logo-black.webp"),
+                Path(__file__).resolve().parent.parent / "assets" / "logo-black.webp",
+            ]
+            logo_file = None
+            for p in candidates:
+                if p.is_file():
+                    logo_file = p
+                    break
+
+            if not logo_file:
+                app_logger.debug("Watermark logo file not found in candidate paths.")
+                return None
+
+            try:
+                self._watermark_logo = Image.open(logo_file).convert("RGBA")
+            except Exception as e:
+                app_logger.warning(f"Could not load watermark logo from {logo_file}: {e}")
+                return None
+
+        return self._watermark_logo
+
+    def apply_watermark(self, image: Image.Image) -> Image.Image:
+        """Apply watermark logo to the top right corner with 50% fade."""
+        if not getattr(settings, "WATERMARK_ENABLED", True):
+            return image
+
+        logo = self.get_watermark_logo()
+        if logo is None:
+            return image
+
+        try:
+            img = image.copy()
+            img_w, img_h = img.size
+
+            # Scale logo proportionally to photo width (default 15%)
+            scale = getattr(settings, "WATERMARK_SCALE", 0.15)
+            target_w = max(20, int(img_w * scale))
+            if target_w >= img_w:
+                return image
+
+            aspect = logo.height / logo.width
+            target_h = max(1, int(target_w * aspect))
+            if target_h >= img_h:
+                return image
+
+            resized_logo = logo.resize((target_w, target_h), Image.Resampling.LANCZOS)
+
+            # Apply 50% fade (or configured opacity) to alpha channel
+            opacity = getattr(settings, "WATERMARK_OPACITY", 0.50)
+            r, g, b, a = resized_logo.split()
+            a = a.point(lambda p: int(p * opacity))
+            resized_logo.putalpha(a)
+
+            # Calculate top-right position with margin
+            margin_pct = getattr(settings, "WATERMARK_MARGIN_PERCENT", 0.02)
+            margin_x = max(10, int(img_w * margin_pct))
+            margin_y = max(10, int(img_h * margin_pct))
+
+            x = max(0, img_w - target_w - margin_x)
+            y = max(0, margin_y)
+
+            orig_mode = img.mode
+            if orig_mode != "RGBA":
+                rgba_img = img.convert("RGBA")
+                rgba_img.paste(resized_logo, (x, y), mask=resized_logo)
+                return rgba_img.convert("RGB") if orig_mode == "RGB" else rgba_img
+            else:
+                img.paste(resized_logo, (x, y), mask=resized_logo)
+                return img
+
+        except Exception as e:
+            app_logger.warning(f"Failed to apply watermark: {e}")
+            return image
+
     def save_original_photo(
         self,
         event_id: uuid.UUID,
@@ -143,9 +224,27 @@ class StorageService:
         if transposed_img is not None:
             img = transposed_img
 
+        # Apply watermark logo in top-right corner with 50% fade
+        img = self.apply_watermark(img)
+
         norm_buffer = io.BytesIO()
-        save_format = img.format or ("JPEG" if ext.lower() in (".jpg", ".jpeg") else "PNG")
-        img.save(norm_buffer, format=save_format)
+        ext_lower = ext.lower()
+        if ext_lower in (".jpg", ".jpeg"):
+            save_format = "JPEG"
+        elif ext_lower == ".png":
+            save_format = "PNG"
+        elif ext_lower == ".webp":
+            save_format = "WEBP"
+        else:
+            save_format = img.format or "JPEG"
+
+        if save_format == "JPEG" and img.mode != "RGB":
+            img = img.convert("RGB")
+
+        if save_format == "JPEG":
+            img.save(norm_buffer, format="JPEG", quality=95)
+        else:
+            img.save(norm_buffer, format=save_format)
         normalized_bytes = norm_buffer.getvalue()
 
         if self.is_r2:
