@@ -1,46 +1,20 @@
 services:
-  db:
-    image: pgvector/pgvector:pg16
-    container_name: event_photos_db
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-      POSTGRES_DB: ${POSTGRES_DB:-event_photos}
-    ports:
-      - "${POSTGRES_HOST_PORT:-5433}:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-event_photos}"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-      start_period: 5s
-    deploy:
-      resources:
-        limits:
-          cpus: '0.8'
-          memory: 1024M
-
   api:
     build:
       context: .
       dockerfile: docker/Dockerfile.api
     container_name: event_photos_api
     restart: unless-stopped
-    depends_on:
-      db:
-        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     env_file:
       - .env
     environment:
-      - POSTGRES_SERVER=${POSTGRES_SERVER:-db}
-      - POSTGRES_PORT=${POSTGRES_PORT:-5432}
+      - POSTGRES_SERVER=host.docker.internal
+      - POSTGRES_PORT=5432
       - DATABASE_URL=${DATABASE_URL:-}
     volumes:
       - storage_data:/app/storage
-      - ./storage/logo:/app/storage/logo:ro
       - ./models_zoo:/app/models_zoo
     ports:
       - "${API_HOST_PORT:-8001}:8000"
@@ -56,18 +30,16 @@ services:
       dockerfile: docker/Dockerfile.worker
     container_name: event_photos_worker
     restart: unless-stopped
-    depends_on:
-      db:
-        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     env_file:
       - .env
     environment:
-      - POSTGRES_SERVER=${POSTGRES_SERVER:-db}
-      - POSTGRES_PORT=${POSTGRES_PORT:-5432}
+      - POSTGRES_SERVER=host.docker.internal
+      - POSTGRES_PORT=5432
       - DATABASE_URL=${DATABASE_URL:-}
     volumes:
       - storage_data:/app/storage
-      - ./storage/logo:/app/storage/logo:ro
       - ./models_zoo:/app/models_zoo
     deploy:
       resources:
@@ -81,8 +53,10 @@ services:
     restart: unless-stopped
     ports:
       - "${HTTP_PORT:-80}:80"
+      - "443:443"
     volumes:
       - ./docker/nginx.conf:/etc/nginx/nginx.conf:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
     depends_on:
       - api
     deploy:
@@ -92,6 +66,4 @@ services:
           memory: 256M
 
 volumes:
-  postgres_data:
   storage_data:
-
