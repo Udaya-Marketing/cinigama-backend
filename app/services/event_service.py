@@ -224,6 +224,17 @@ class EventService:
             else:
                 event.access_code_hash = None
 
+        if "slug" in update_data:
+            slug_val = update_data.pop("slug")
+            if slug_val:
+                raw_slug = slug_val.strip().lower()
+                new_slug = generate_slug(raw_slug) or raw_slug
+                if new_slug != event.slug:
+                    existing = await db.execute(select(Event).where(Event.slug == new_slug, Event.id != event.id))
+                    if existing.scalar_one_or_none():
+                        raise ConflictError(f"Slug '{new_slug}' is already in use by another event")
+                    event.slug = new_slug
+
         for field, value in update_data.items():
             setattr(event, field, value)
 

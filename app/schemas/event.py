@@ -20,6 +20,7 @@ class EventCreate(EventBase):
 
 class EventUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=2, max_length=255)
+    slug: Optional[str] = Field(None, min_length=2, max_length=255)
     description: Optional[str] = None
     event_date: Optional[datetime.datetime] = None
     access_type: Optional[str] = Field(None, pattern="^(public|private|code_protected)$")

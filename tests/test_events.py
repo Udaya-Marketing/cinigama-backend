@@ -98,3 +98,35 @@ async def test_delete_event(client: AsyncClient, test_event, organiser_headers: 
     get_res = await client.get(f"/api/v1/events/{test_event.id}")
     assert get_res.status_code == 404
 
+
+@pytest.mark.asyncio
+async def test_update_event_slug(client: AsyncClient, test_event, organiser_headers: dict):
+    # 1. Update slug to a custom string
+    response = await client.patch(
+        f"/api/v1/events/{test_event.id}",
+        json={"slug": "new-custom-slug-52630"},
+        headers=organiser_headers,
+    )
+    assert response.status_code == 200
+    assert response.json()["data"]["slug"] == "new-custom-slug-52630"
+
+    # 2. Verify event can be fetched via new slug
+    get_res = await client.get("/api/v1/events/new-custom-slug-52630")
+    assert get_res.status_code == 200
+    assert get_res.json()["data"]["id"] == str(test_event.id)
+
+    # 3. Create another event and ensure updating to duplicate slug fails with 409
+    create_second = await client.post(
+        "/api/v1/events",
+        json={"name": "Second Event", "slug": "second-unique-slug"},
+        headers=organiser_headers,
+    )
+    assert create_second.status_code == 201
+
+    conflict_res = await client.patch(
+        f"/api/v1/events/{test_event.id}",
+        json={"slug": "second-unique-slug"},
+        headers=organiser_headers,
+    )
+    assert conflict_res.status_code == 409
+
