@@ -29,3 +29,4 @@ storage/*
 !storage/logo/**
 temp/
 *.log
+udaya
