@@ -41,3 +41,4 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.drop_index('ix_restricted_faces_event_id', table_name='restricted_faces')
     op.drop_table('restricted_faces')
+

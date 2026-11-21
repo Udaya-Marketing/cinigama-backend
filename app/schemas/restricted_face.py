@@ -20,3 +20,4 @@ class RestrictedFaceRead(BaseModel):
 class RestrictedFaceListResponse(BaseModel):
     items: List[RestrictedFaceRead]
     total: int
+

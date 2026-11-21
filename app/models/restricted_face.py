@@ -49,3 +49,4 @@ class RestrictedFace(Base):
 
 
 Index("idx_restricted_faces_event", RestrictedFace.event_id)
+

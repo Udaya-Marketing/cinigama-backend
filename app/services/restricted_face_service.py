@@ -316,3 +316,4 @@ class RestrictedFaceService:
                 if sim >= threshold:
                     return True, rf
             return False, None
+
