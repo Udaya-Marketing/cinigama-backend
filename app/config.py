@@ -80,8 +80,8 @@ class Settings(BaseSettings):
     YUNET_TOP_K: int = 5000
     # Calibrated SFace cosine similarity threshold.
     # SFace embeddings are L2 normalized. Cosine similarity ranges from -1 to 1.
-    # Default conservative operating threshold: 0.363 (recommended by SFace authors, verified in calibration)
-    SFACE_COSINE_THRESHOLD: float = 0.363
+    # Required threshold: 0.50 (matches must be equal or above 50% similarity)
+    SFACE_COSINE_THRESHOLD: float = 0.50
     MIN_FACE_SIZE_PX: int = 40
     MAX_SELFIE_FACES_ALLOWED: int = 1
 

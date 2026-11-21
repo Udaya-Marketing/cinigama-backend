@@ -146,6 +146,7 @@ class SearchService:
         session_id: uuid.UUID,
         selfie_file: UploadFile,
         threshold: Optional[float] = None,
+        include_public: bool = False,
         current_user: Optional[User] = None,
         ip_address: Optional[str] = None,
     ) -> FaceSearchResponse:
@@ -154,15 +155,18 @@ class SearchService:
         2. Detect exactly one face in selfie.
         3. Extract 128-d normalized embedding.
         4. Query event's indexed faces with strict event isolation.
-        5. Filter by calibrated cosine threshold.
-        6. Combine deduplicated face matches with public photos.
+        5. Filter by calibrated cosine threshold (minimum 0.50 / 50% similarity).
+        6. Combine deduplicated face matches (optionally with public photos if requested).
         7. Ensure temporary selfie data is wiped immediately.
         """
         session = await SearchService.get_valid_session(db, event_id, session_id)
         canonical_id = session.event_id
 
-        # Operating threshold
-        cos_threshold = threshold if threshold is not None else settings.SFACE_COSINE_THRESHOLD
+        # Operating threshold: enforce minimum 0.50 (50% similarity)
+        default_threshold = getattr(settings, "SFACE_COSINE_THRESHOLD", 0.50)
+        cos_threshold = threshold if threshold is not None else default_threshold
+        if cos_threshold < 0.50:
+            cos_threshold = 0.50
 
         # Read and validate selfie in memory
         content = await selfie_file.read()
@@ -203,7 +207,8 @@ class SearchService:
             rows = (await db.execute(stmt)).all()
             for r in rows:
                 sim = 1.0 - float(r.min_dist)
-                matched_photos_map[r.photo_id] = (sim, float(r.confidence))
+                if sim >= cos_threshold:
+                    matched_photos_map[r.photo_id] = (sim, float(r.confidence))
         else:
             # Python-based exact cosine search fallback for SQLite in tests
             stmt = select(PhotoFace).where(PhotoFace.event_id == canonical_id)
@@ -229,23 +234,11 @@ class SearchService:
             )
             matched_photos = list((await db.execute(p_stmt)).scalars().all())
 
-        # Retrieve public completed photos for this event
-        pub_stmt = (
-            select(Photo)
-            .where(
-                Photo.event_id == canonical_id,
-                Photo.is_public == True,  # noqa: E712
-                Photo.processing_status == "completed",
-            )
-            .options(selectinload(Photo.faces))
-        )
-        public_photos = list((await db.execute(pub_stmt)).scalars().all())
-
         # Combine and deduplicate
         seen_photo_ids: Set[uuid.UUID] = set()
         items: List[MatchedPhotoItem] = []
 
-        # 1. Add face matches (sorted by similarity desc)
+        # 1. Add face matches (sorted by similarity desc, strictly >= cos_threshold)
         matched_photos_sorted = sorted(
             matched_photos,
             key=lambda p: matched_photos_map[p.id][0],
@@ -265,21 +258,33 @@ class SearchService:
                 )
             )
 
-        # 2. Add public photos that weren't already matched
+        # 2. Add public photos only if explicitly requested (include_public=True)
         pub_count = 0
-        for p in public_photos:
-            if p.id not in seen_photo_ids:
-                seen_photo_ids.add(p.id)
-                pread = PhotoService.to_photo_read(p, canonical_id)
-                items.append(
-                    MatchedPhotoItem(
-                        photo=pread,
-                        match_type="public",
-                        similarity_score=None,
-                        detection_confidence=None,
-                    )
+        if include_public:
+            pub_stmt = (
+                select(Photo)
+                .where(
+                    Photo.event_id == canonical_id,
+                    Photo.is_public == True,  # noqa: E712
+                    Photo.processing_status == "completed",
                 )
-                pub_count += 1
+                .options(selectinload(Photo.faces))
+            )
+            public_photos = list((await db.execute(pub_stmt)).scalars().all())
+
+            for p in public_photos:
+                if p.id not in seen_photo_ids:
+                    seen_photo_ids.add(p.id)
+                    pread = PhotoService.to_photo_read(p, canonical_id)
+                    items.append(
+                        MatchedPhotoItem(
+                            photo=pread,
+                            match_type="public",
+                            similarity_score=None,
+                            detection_confidence=None,
+                        )
+                    )
+                    pub_count += 1
 
         # Audit log search operation (without biometric embeddings!)
         await record_audit_log(

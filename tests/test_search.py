@@ -106,3 +106,192 @@ async def test_search_raw_embeddings_never_exposed(
     assert "embedding" not in resp_text.lower() or '"embedding":' not in resp_text
     assert "vector" not in resp_text.lower()
 
+
+@pytest.mark.asyncio
+async def test_search_matches_only_equal_or_above_50_percent(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    test_event,
+):
+    from unittest.mock import patch
+    from app.services.face_service import DetectedFace
+
+    # 1. Initialize consent session
+    consent_res = await client.post(
+        f"/api/v1/events/{test_event.id}/search/consent",
+        json={"consent_given": True},
+    )
+    assert consent_res.status_code == 201
+    session_id = consent_res.json()["data"]["session_id"]
+
+    # 2. Base reference unit vector for the selfie
+    selfie_vec = np.zeros(128, dtype=np.float32)
+    selfie_vec[0] = 1.0
+
+    def make_vector_with_similarity(s: float) -> list[float]:
+        v = np.zeros(128, dtype=np.float32)
+        v[0] = s
+        v[1] = np.sqrt(max(0.0, 1.0 - s * s))
+        v = v / np.linalg.norm(v)
+        return v.tolist()
+
+    # Photo 1: High match (similarity = 0.85, >= 0.50) -> MUST MATCH
+    p1 = Photo(
+        id=uuid.uuid4(),
+        event_id=test_event.id,
+        original_filename="high_match.jpg",
+        storage_path="/tmp/p1.jpg",
+        thumbnail_path="/tmp/p1_thumb.webp",
+        mime_type="image/jpeg",
+        file_size=2048,
+        is_public=False,
+        processing_status="completed",
+    )
+    f1 = PhotoFace(
+        id=uuid.uuid4(),
+        event_id=test_event.id,
+        photo_id=p1.id,
+        embedding=make_vector_with_similarity(0.85),
+        bounding_box={"x": 10, "y": 10, "w": 50, "h": 50},
+        detection_confidence=0.98,
+    )
+
+    # Photo 2: Exactly 50% match (similarity = 0.50, >= 0.50) -> MUST MATCH (equal or above 50%)
+    p2 = Photo(
+        id=uuid.uuid4(),
+        event_id=test_event.id,
+        original_filename="boundary_50_match.jpg",
+        storage_path="/tmp/p2.jpg",
+        thumbnail_path="/tmp/p2_thumb.webp",
+        mime_type="image/jpeg",
+        file_size=2048,
+        is_public=False,
+        processing_status="completed",
+    )
+    f2 = PhotoFace(
+        id=uuid.uuid4(),
+        event_id=test_event.id,
+        photo_id=p2.id,
+        embedding=make_vector_with_similarity(0.50),
+        bounding_box={"x": 10, "y": 10, "w": 50, "h": 50},
+        detection_confidence=0.95,
+    )
+
+    # Photo 3: Low match (similarity = 0.45, < 0.50) -> MUST NOT MATCH
+    p3 = Photo(
+        id=uuid.uuid4(),
+        event_id=test_event.id,
+        original_filename="low_match_45.jpg",
+        storage_path="/tmp/p3.jpg",
+        thumbnail_path="/tmp/p3_thumb.webp",
+        mime_type="image/jpeg",
+        file_size=2048,
+        is_public=False,
+        processing_status="completed",
+    )
+    f3 = PhotoFace(
+        id=uuid.uuid4(),
+        event_id=test_event.id,
+        photo_id=p3.id,
+        embedding=make_vector_with_similarity(0.45),
+        bounding_box={"x": 10, "y": 10, "w": 50, "h": 50},
+        detection_confidence=0.90,
+    )
+
+    # Photo 4: Previous default threshold match (similarity = 0.38, < 0.50) -> MUST NOT MATCH
+    p4 = Photo(
+        id=uuid.uuid4(),
+        event_id=test_event.id,
+        original_filename="old_threshold_38.jpg",
+        storage_path="/tmp/p4.jpg",
+        thumbnail_path="/tmp/p4_thumb.webp",
+        mime_type="image/jpeg",
+        file_size=2048,
+        is_public=False,
+        processing_status="completed",
+    )
+    f4 = PhotoFace(
+        id=uuid.uuid4(),
+        event_id=test_event.id,
+        photo_id=p4.id,
+        embedding=make_vector_with_similarity(0.38),
+        bounding_box={"x": 10, "y": 10, "w": 50, "h": 50},
+        detection_confidence=0.88,
+    )
+
+    # Photo 5: Public photo without matching face -> MUST NOT be in search results by default
+    p5 = Photo(
+        id=uuid.uuid4(),
+        event_id=test_event.id,
+        original_filename="public_stage_unmatched.jpg",
+        storage_path="/tmp/p5.jpg",
+        thumbnail_path="/tmp/p5_thumb.webp",
+        mime_type="image/jpeg",
+        file_size=2048,
+        is_public=True,
+        processing_status="completed",
+    )
+    f5 = PhotoFace(
+        id=uuid.uuid4(),
+        event_id=test_event.id,
+        photo_id=p5.id,
+        embedding=make_vector_with_similarity(0.10),
+        bounding_box={"x": 10, "y": 10, "w": 50, "h": 50},
+        detection_confidence=0.90,
+    )
+
+    db_session.add_all([p1, p2, p3, p4, p5, f1, f2, f3, f4, f5])
+    await db_session.commit()
+
+    # 3. Perform search with mocked selfie returning selfie_vec
+    mock_detected_face = DetectedFace(
+        bounding_box={"x": 10, "y": 10, "w": 60, "h": 60},
+        confidence=0.99,
+        landmarks={},
+        embedding=selfie_vec.tolist(),
+    )
+
+    with patch.object(FaceRecognitionEngine, "process_selfie", return_value=mock_detected_face):
+        search_res = await client.post(
+            f"/api/v1/events/{test_event.id}/search",
+            files={"selfie": ("selfie.jpg", b"fake_bytes", "image/jpeg")},
+            data={"session_id": str(session_id)},
+        )
+
+    assert search_res.status_code == 200
+    data = search_res.json()["data"]
+    items = data["items"]
+
+    # Verify matched count is exactly 2 (p1 with 0.85 and p2 with 0.50)
+    assert data["matched_count"] == 2
+    assert data["public_count"] == 0
+    assert data["total_returned"] == 2
+
+    returned_photo_ids = [item["photo"]["id"] for item in items]
+    assert str(p1.id) in returned_photo_ids
+    assert str(p2.id) in returned_photo_ids
+    assert str(p3.id) not in returned_photo_ids  # 45% similarity must be excluded
+    assert str(p4.id) not in returned_photo_ids  # 38% similarity must be excluded
+    assert str(p5.id) not in returned_photo_ids  # Unmatched public photo must be excluded
+
+    # Verify similarity scores are >= 0.50
+    for item in items:
+        assert item["similarity_score"] >= 0.50
+        assert item["match_type"] == "face_match"
+
+    # 4. Perform search with include_public=True to ensure unmatched public photos are included only if requested
+    with patch.object(FaceRecognitionEngine, "process_selfie", return_value=mock_detected_face):
+        search_pub_res = await client.post(
+            f"/api/v1/events/{test_event.id}/search",
+            files={"selfie": ("selfie.jpg", b"fake_bytes", "image/jpeg")},
+            data={"session_id": str(session_id), "include_public": "true"},
+        )
+
+    assert search_pub_res.status_code == 200
+    pub_data = search_pub_res.json()["data"]
+    assert pub_data["matched_count"] == 2
+    assert pub_data["public_count"] == 1
+    assert pub_data["total_returned"] == 3
+    pub_ids = [item["photo"]["id"] for item in pub_data["items"]]
+    assert str(p5.id) in pub_ids
+

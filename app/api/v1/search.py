@@ -67,7 +67,7 @@ async def create_search_consent(
 @router.post(
     "",
     response_model=APIResponse[FaceSearchResponse],
-    summary="Upload selfie, index face, and retrieve authorized matching and public photographs",
+    summary="Upload selfie, index face, and retrieve authorized matching photographs (similarity >= 50%)",
     dependencies=[Depends(rate_limit_search)],
 )
 async def search_by_selfie(
@@ -75,7 +75,8 @@ async def search_by_selfie(
     request: Request,
     selfie: UploadFile = File(..., description="Attendee selfie photo (JPEG, PNG, WebP)"),
     session_id: uuid.UUID = Form(..., description="Active search session ID from consent endpoint"),
-    threshold: Optional[float] = Form(None, description="Optional override for cosine similarity threshold"),
+    threshold: Optional[float] = Form(None, description="Optional override for cosine similarity threshold (default 0.50 / 50%)"),
+    include_public: bool = Form(False, description="Whether to include unmatched public event photos (default False)"),
     db: AsyncSession = Depends(get_async_db),
     current_user: Optional[User] = Depends(get_optional_user),
 ):
@@ -86,12 +87,18 @@ async def search_by_selfie(
         session_id=session_id,
         selfie_file=selfie,
         threshold=threshold,
+        include_public=include_public,
         current_user=current_user,
         ip_address=ip_addr,
     )
+    if results.public_count > 0:
+        msg = f"Found {results.matched_count} matching photo(s) and {results.public_count} public photo(s)"
+    else:
+        msg = f"Found {results.matched_count} matching photo(s)"
+
     return APIResponse(
         success=True,
-        message=f"Found {results.matched_count} matching photo(s) and {results.public_count} public photo(s)",
+        message=msg,
         data=results,
     )
 
