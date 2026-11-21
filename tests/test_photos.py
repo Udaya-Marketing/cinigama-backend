@@ -195,3 +195,96 @@ async def test_batch_update_and_batch_delete_photos(
     assert gone1.status_code == 404
 
 
+@pytest.mark.asyncio
+async def test_view_and_manage_all_photos_with_pagination(
+    client: AsyncClient,
+    test_event,
+    organiser_headers: dict,
+    sample_image_bytes: bytes,
+    sample_png_bytes: bytes,
+):
+    # Upload 3 photos with distinct names and visibilities
+    await client.post(
+        f"/api/v1/events/{test_event.id}/photos",
+        files={"file": ("alpha_landscape.jpg", sample_image_bytes, "image/jpeg")},
+        data={"is_public": "true"},
+        headers=organiser_headers,
+    )
+    await client.post(
+        f"/api/v1/events/{test_event.id}/photos",
+        files={"file": ("beta_portrait.png", sample_png_bytes, "image/png")},
+        data={"is_public": "false"},
+        headers=organiser_headers,
+    )
+    await client.post(
+        f"/api/v1/events/{test_event.id}/photos",
+        files={"file": ("gamma_event.jpg", sample_image_bytes, "image/jpeg")},
+        data={"is_public": "true"},
+        headers=organiser_headers,
+    )
+
+    # 1. View all photos with pagination (page=1, page_size=2)
+    res_p1 = await client.get(
+        "/api/v1/photos?page=1&page_size=2",
+        headers=organiser_headers,
+    )
+    assert res_p1.status_code == 200
+    p1_data = res_p1.json()
+    assert p1_data["page"] == 1
+    assert p1_data["page_size"] == 2
+    assert p1_data["total"] >= 3
+    assert len(p1_data["items"]) == 2
+    assert p1_data["has_next"] is True
+
+    # 2. Page 2
+    res_p2 = await client.get(
+        "/api/v1/photos?page=2&page_size=2",
+        headers=organiser_headers,
+    )
+    assert res_p2.status_code == 200
+    p2_data = res_p2.json()
+    assert p2_data["page"] == 2
+    assert len(p2_data["items"]) >= 1
+
+    # 3. Filter by search query (e.g. "landscape")
+    res_search = await client.get(
+        "/api/v1/photos?search=landscape",
+        headers=organiser_headers,
+    )
+    assert res_search.status_code == 200
+    search_items = res_search.json()["items"]
+    assert len(search_items) == 1
+    assert search_items[0]["original_filename"] == "alpha_landscape.jpg"
+
+    # 4. Filter by is_public=false
+    res_priv = await client.get(
+        "/api/v1/photos?is_public=false",
+        headers=organiser_headers,
+    )
+    assert res_priv.status_code == 200
+    for p in res_priv.json()["items"]:
+        assert p["is_public"] is False
+
+    # 5. Direct photo management: PATCH visibility by ID
+    target_photo = search_items[0]
+    photo_id = target_photo["id"]
+    patch_res = await client.patch(
+        f"/api/v1/photos/{photo_id}",
+        json={"is_public": False},
+        headers=organiser_headers,
+    )
+    assert patch_res.status_code == 200
+    assert patch_res.json()["data"]["is_public"] is False
+
+    # 6. Direct photo management: DELETE by ID
+    del_res = await client.delete(
+        f"/api/v1/photos/{photo_id}",
+        headers=organiser_headers,
+    )
+    assert del_res.status_code == 200
+
+    # 7. Verify photo deleted
+    get_res = await client.get(f"/api/v1/photos/{photo_id}", headers=organiser_headers)
+    assert get_res.status_code == 404
+
+

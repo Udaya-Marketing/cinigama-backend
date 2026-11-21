@@ -31,6 +31,7 @@ class PhotoRead(BaseModel):
     face_count: Optional[int] = 0
     thumbnail_url: Optional[str] = None
     url: Optional[str] = None
+    event_name: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 

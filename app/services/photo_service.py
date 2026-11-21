@@ -32,6 +32,9 @@ class PhotoService:
         else:
             pread.face_count = 0
 
+        if "event" in photo.__dict__ and photo.__dict__["event"] is not None:
+            pread.event_name = photo.__dict__["event"].name
+
         if storage_service.is_r2:
             target_key = photo.thumbnail_path or photo.storage_path
             pread.thumbnail_url = storage_service.generate_presigned_url(target_key)
@@ -180,6 +183,9 @@ class PhotoService:
         current_user: Optional[User] = None,
         status: Optional[str] = None,
         is_public: Optional[bool] = None,
+        search: Optional[str] = None,
+        sort_by: str = "created_at",
+        sort_order: str = "desc",
         page: int = 1,
         page_size: int = 20,
     ) -> Tuple[List[PhotoRead], int]:
@@ -205,19 +211,231 @@ class PhotoService:
                 query = query.where(Photo.is_public == is_public)
                 count_query = count_query.where(Photo.is_public == is_public)
 
+        if search:
+            clean_search = f"%{search.strip()}%"
+            query = query.where(Photo.original_filename.ilike(clean_search))
+            count_query = count_query.where(Photo.original_filename.ilike(clean_search))
+
         total = (await db.execute(count_query)).scalar_one()
 
+        sort_col = Photo.created_at
+        if sort_by == "file_size":
+            sort_col = Photo.file_size
+        elif sort_by == "original_filename":
+            sort_col = Photo.original_filename
+        elif sort_by == "processing_status":
+            sort_col = Photo.processing_status
+
+        if sort_order.lower() == "asc":
+            query = query.order_by(sort_col.asc())
+        else:
+            query = query.order_by(sort_col.desc())
+
         query = (
-            query.options(selectinload(Photo.faces))
-            .order_by(Photo.created_at.desc())
+            query.options(selectinload(Photo.faces), selectinload(Photo.event))
             .offset((page - 1) * page_size)
             .limit(page_size)
         )
         photos = (await db.execute(query)).scalars().all()
 
         photo_reads = [PhotoService.to_photo_read(p, canonical_id) for p in photos]
-
         return photo_reads, total
+
+    @staticmethod
+    async def list_all_photos(
+        db: AsyncSession,
+        current_user: User,
+        event_id: Optional[uuid.UUID | str] = None,
+        status: Optional[str] = None,
+        is_public: Optional[bool] = None,
+        search: Optional[str] = None,
+        page: int = 1,
+        page_size: int = 20,
+        sort_by: str = "created_at",
+        sort_order: str = "desc",
+    ) -> Tuple[List[PhotoRead], int]:
+        """View and manage all photos with pagination across events."""
+        query = select(Photo).join(Event, Photo.event_id == Event.id)
+        count_query = select(func.count(Photo.id)).join(Event, Photo.event_id == Event.id)
+
+        # Scoping: if user is not admin, scope to events they organise
+        if current_user.role != "admin":
+            query = query.where(Event.organiser_id == current_user.id)
+            count_query = count_query.where(Event.organiser_id == current_user.id)
+
+        if event_id:
+            resolved_event = await EventService.get_event_by_id(db, event_id)
+            query = query.where(Photo.event_id == resolved_event.id)
+            count_query = count_query.where(Photo.event_id == resolved_event.id)
+
+        if status:
+            query = query.where(Photo.processing_status == status)
+            count_query = count_query.where(Photo.processing_status == status)
+
+        if is_public is not None:
+            query = query.where(Photo.is_public == is_public)
+            count_query = count_query.where(Photo.is_public == is_public)
+
+        if search:
+            clean_search = f"%{search.strip()}%"
+            query = query.where(Photo.original_filename.ilike(clean_search))
+            count_query = count_query.where(Photo.original_filename.ilike(clean_search))
+
+        total = (await db.execute(count_query)).scalar_one()
+
+        sort_col = Photo.created_at
+        if sort_by == "file_size":
+            sort_col = Photo.file_size
+        elif sort_by == "original_filename":
+            sort_col = Photo.original_filename
+        elif sort_by == "processing_status":
+            sort_col = Photo.processing_status
+
+        if sort_order.lower() == "asc":
+            query = query.order_by(sort_col.asc())
+        else:
+            query = query.order_by(sort_col.desc())
+
+        query = (
+            query.options(selectinload(Photo.faces), selectinload(Photo.event))
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+        photos = (await db.execute(query)).scalars().all()
+
+        photo_reads = [PhotoService.to_photo_read(p, p.event_id) for p in photos]
+        return photo_reads, total
+
+    @staticmethod
+    async def get_photo_direct(
+        db: AsyncSession,
+        photo_id: uuid.UUID,
+        current_user: Optional[User] = None,
+    ) -> Photo:
+        stmt = (
+            select(Photo)
+            .where(Photo.id == photo_id)
+            .options(selectinload(Photo.faces), selectinload(Photo.event))
+        )
+        photo = (await db.execute(stmt)).scalar_one_or_none()
+        if not photo:
+            raise NotFoundError(f"Photo {photo_id} not found")
+
+        if photo.is_public:
+            return photo
+
+        if not current_user:
+            raise PermissionDeniedError("Authentication required for private photo")
+        if current_user.role != "admin" and photo.event.organiser_id != current_user.id:
+            raise PermissionDeniedError("Not authorised to view this photo")
+
+        return photo
+
+    @staticmethod
+    async def update_photo_direct(
+        db: AsyncSession,
+        photo_id: uuid.UUID,
+        photo_in: PhotoUpdate,
+        current_user: User,
+    ) -> Photo:
+        stmt = (
+            select(Photo)
+            .where(Photo.id == photo_id)
+            .options(selectinload(Photo.faces), selectinload(Photo.event))
+        )
+        photo = (await db.execute(stmt)).scalar_one_or_none()
+        if not photo:
+            raise NotFoundError(f"Photo {photo_id} not found")
+
+        if current_user.role != "admin" and photo.event.organiser_id != current_user.id:
+            raise PermissionDeniedError("Not authorised to update this photo")
+
+        if photo_in.is_public is not None:
+            photo.is_public = photo_in.is_public
+
+        await db.commit()
+        await db.refresh(photo)
+        return photo
+
+    @staticmethod
+    async def delete_photo_direct(
+        db: AsyncSession,
+        photo_id: uuid.UUID,
+        current_user: User,
+    ) -> None:
+        stmt = (
+            select(Photo)
+            .where(Photo.id == photo_id)
+            .options(selectinload(Photo.event))
+        )
+        photo = (await db.execute(stmt)).scalar_one_or_none()
+        if not photo:
+            raise NotFoundError(f"Photo {photo_id} not found")
+
+        if current_user.role != "admin" and photo.event.organiser_id != current_user.id:
+            raise PermissionDeniedError("Not authorised to delete this photo")
+
+        orig_path = photo.storage_path
+        thumb_path = photo.thumbnail_path
+
+        await db.delete(photo)
+        await db.commit()
+
+        storage_service.delete_photo_files(orig_path, thumb_path)
+
+    @staticmethod
+    async def batch_update_photos_direct(
+        db: AsyncSession,
+        photo_ids: List[uuid.UUID],
+        is_public: bool,
+        current_user: User,
+    ) -> List[uuid.UUID]:
+        stmt = (
+            select(Photo)
+            .join(Event, Photo.event_id == Event.id)
+            .where(Photo.id.in_(photo_ids))
+        )
+        if current_user.role != "admin":
+            stmt = stmt.where(Event.organiser_id == current_user.id)
+
+        photos = list((await db.execute(stmt)).scalars().all())
+        updated_ids = []
+        for p in photos:
+            p.is_public = is_public
+            updated_ids.append(p.id)
+
+        await db.commit()
+        return updated_ids
+
+    @staticmethod
+    async def batch_delete_photos_direct(
+        db: AsyncSession,
+        photo_ids: List[uuid.UUID],
+        current_user: User,
+    ) -> List[uuid.UUID]:
+        stmt = (
+            select(Photo)
+            .join(Event, Photo.event_id == Event.id)
+            .where(Photo.id.in_(photo_ids))
+        )
+        if current_user.role != "admin":
+            stmt = stmt.where(Event.organiser_id == current_user.id)
+
+        photos = list((await db.execute(stmt)).scalars().all())
+        deleted_ids = []
+        files_to_delete = []
+
+        for p in photos:
+            deleted_ids.append(p.id)
+            files_to_delete.append((p.storage_path, p.thumbnail_path))
+            await db.delete(p)
+
+        await db.commit()
+
+        for orig_p, thumb_p in files_to_delete:
+            storage_service.delete_photo_files(orig_p, thumb_p)
+
+        return deleted_ids
 
     @staticmethod
     async def get_photo_by_id(
