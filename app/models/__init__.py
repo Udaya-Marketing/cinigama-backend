@@ -7,6 +7,7 @@ from app.models.access import EventAccess
 from app.models.search import SearchSession
 from app.models.job import PhotoProcessingJob
 from app.models.audit import AuditLog
+from app.models.restricted_face import RestrictedFace
 
 __all__ = [
     "Base",
@@ -20,5 +21,6 @@ __all__ = [
     "SearchSession",
     "PhotoProcessingJob",
     "AuditLog",
+    "RestrictedFace",
 ]
 

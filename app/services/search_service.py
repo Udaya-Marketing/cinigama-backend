@@ -12,6 +12,7 @@ from app.core.exceptions import (
     AuthenticationError,
     ConsentRequiredError,
     FaceDetectionError,
+    FaceSearchRestrictedError,
     NotFoundError,
     PermissionDeniedError,
 )
@@ -31,6 +32,7 @@ from app.schemas.search import (
 from app.services.event_service import EventService
 from app.services.face_service import FaceRecognitionEngine
 from app.services.photo_service import PhotoService
+from app.services.restricted_face_service import RestrictedFaceService
 
 
 def to_utc(dt: Optional[datetime.datetime]) -> Optional[datetime.datetime]:
@@ -179,6 +181,31 @@ class SearchService:
             del content
 
         selfie_vec = detected_face.embedding
+
+        # Check if the face is restricted from searching in this event
+        is_restricted, matched_rf = await RestrictedFaceService.is_face_restricted(
+            db=db,
+            event_id=canonical_id,
+            selfie_vec=selfie_vec,
+            threshold=cos_threshold,
+        )
+        if is_restricted:
+            await record_audit_log(
+                db=db,
+                action="SELFIE_SEARCH_BLOCKED_RESTRICTED",
+                event_id=canonical_id,
+                user_id=current_user.id if current_user else None,
+                details={
+                    "session_id": str(session_id),
+                    "restricted_face_id": str(matched_rf.id) if matched_rf else None,
+                    "reason": matched_rf.reason if matched_rf else None,
+                },
+                ip_address=ip_address,
+            )
+            await db.commit()
+            raise FaceSearchRestrictedError(
+                detail="Access restricted: Facial recognition search is disabled for this face. Please contact the event organizer."
+            )
 
         # Exact Vector Similarity Search scoped strictly to event_id
         # In PostgreSQL with pgvector, cosine_distance operator is <=>

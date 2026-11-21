@@ -86,3 +86,15 @@ class RateLimitExceededError(AppError):
             code="RATE_LIMIT_EXCEEDED",
         )
 
+
+class FaceSearchRestrictedError(AppError):
+    def __init__(
+        self,
+        detail: str = "Access restricted: Facial recognition search is disabled for this face. Please contact the event organizer.",
+    ):
+        super().__init__(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=detail,
+            code="FACE_SEARCH_RESTRICTED",
+        )
+

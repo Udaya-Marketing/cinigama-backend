@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from app.models.face import PhotoFace
     from app.models.access import EventAccess
     from app.models.search import SearchSession
+    from app.models.restricted_face import RestrictedFace
 
 
 class Event(Base, TimestampMixin):
@@ -70,6 +71,11 @@ class Event(Base, TimestampMixin):
     )
     search_sessions: Mapped[List["SearchSession"]] = relationship(
         "SearchSession",
+        back_populates="event",
+        cascade="all, delete-orphan",
+    )
+    restricted_faces: Mapped[List["RestrictedFace"]] = relationship(
+        "RestrictedFace",
         back_populates="event",
         cascade="all, delete-orphan",
     )
