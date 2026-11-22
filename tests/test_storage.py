@@ -92,3 +92,21 @@ def test_storage_save_original_applies_watermark(tmp_path: Path):
     assert saved_img.size == (800, 600)
 
 
+def test_storage_watermark_scale_diff_portrait_and_landscape(tmp_path: Path):
+    from PIL import Image
+    service = StorageService(base_dir=tmp_path)
+    logo = service.get_watermark_logo()
+    if logo is None:
+        pytest.skip("No watermark logo found to test")
+
+    # 1. Landscape (1200x800)
+    landscape_img = Image.new("RGB", (1200, 800), (30, 30, 30))
+    wm_landscape = service.apply_watermark(landscape_img)
+    assert wm_landscape.size == (1200, 800)
+
+    # 2. Portrait (800x1200)
+    portrait_img = Image.new("RGB", (800, 1200), (30, 30, 30))
+    wm_portrait = service.apply_watermark(portrait_img)
+    assert wm_portrait.size == (800, 1200)
+
+

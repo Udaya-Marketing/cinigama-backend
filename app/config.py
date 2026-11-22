@@ -70,9 +70,11 @@ class Settings(BaseSettings):
     # Watermark / Logo Settings
     WATERMARK_ENABLED: bool = True
     WATERMARK_LOGO_PATH: Path = Path("storage/logo/logo-white.webp")
-    WATERMARK_OPACITY: float = 0.50  # 50% fade
-    WATERMARK_SCALE: float = 0.15  # 15% of photo width
-    WATERMARK_MARGIN_PERCENT: float = 0.02  # 2% padding from edges
+    WATERMARK_OPACITY: float = 1.0  # 1.0 = solid, 0.5 = 50% fade
+    WATERMARK_SCALE: float = 0.15  # Fallback scale (15% of photo width)
+    WATERMARK_SCALE_LANDSCAPE: float = 0.15  # Scale for landscape photos (width >= height)
+    WATERMARK_SCALE_PORTRAIT: float = 0.22  # Scale for portrait photos (height > width)
+    WATERMARK_MARGIN_PERCENT: float = 0.03  # Padding from edges
 
     # Face Recognition Engine Parameters
     YUNET_SCORE_THRESHOLD: float = 0.70

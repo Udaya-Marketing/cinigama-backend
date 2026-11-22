@@ -174,8 +174,13 @@ class StorageService:
             img = image.copy()
             img_w, img_h = img.size
 
-            # Scale logo proportionally to photo width (default 15%)
-            scale = getattr(settings, "WATERMARK_SCALE", 0.15)
+            # Differentiate scale for portrait vs landscape photos
+            is_portrait = img_h > img_w
+            if is_portrait:
+                scale = getattr(settings, "WATERMARK_SCALE_PORTRAIT", getattr(settings, "WATERMARK_SCALE", 0.22))
+            else:
+                scale = getattr(settings, "WATERMARK_SCALE_LANDSCAPE", getattr(settings, "WATERMARK_SCALE", 0.15))
+
             target_w = max(20, int(img_w * scale))
             if target_w >= img_w:
                 return image
@@ -187,10 +192,14 @@ class StorageService:
 
             resized_logo = logo.resize((target_w, target_h), Image.Resampling.LANCZOS)
 
-            # Apply 50% fade (or configured opacity) to alpha channel
-            opacity = getattr(settings, "WATERMARK_OPACITY", 0.50)
+            # Apply configured opacity (supports 0.0-1.0 or 0-100)
+            raw_opacity = getattr(settings, "WATERMARK_OPACITY", 0.50)
+            if raw_opacity > 1.0:
+                raw_opacity = raw_opacity / 100.0
+            opacity = max(0.0, min(1.0, float(raw_opacity)))
+
             r, g, b, a = resized_logo.split()
-            a = a.point(lambda p: int(p * opacity))
+            a = a.point(lambda p: min(255, max(0, int(p * opacity))))
             resized_logo.putalpha(a)
 
             # Calculate top-right position with margin
