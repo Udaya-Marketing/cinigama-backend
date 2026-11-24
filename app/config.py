@@ -80,6 +80,7 @@ class Settings(BaseSettings):
     YUNET_SCORE_THRESHOLD: float = 0.70
     YUNET_NMS_THRESHOLD: float = 0.30
     YUNET_TOP_K: int = 5000
+    
     # Calibrated SFace cosine similarity threshold.
     # SFace embeddings are L2 normalized. Cosine similarity ranges from -1 to 1.
     # Required threshold: 0.50 (matches must be equal or above 50% similarity)

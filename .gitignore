@@ -30,3 +30,6 @@ storage/*
 temp/
 *.log
 udaya
+github_deploy*
+id_rsa*
+*.pem
